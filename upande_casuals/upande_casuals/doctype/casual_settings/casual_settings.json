@@ -1,0 +1,298 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-10-02 02:50:09.426309",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "pay_section",
+  "default_day_rate",
+  "full_day_hours",
+  "break_hours",
+  "column_break_pay",
+  "round_to_shilling",
+  "short_day_policy",
+  "timing_section",
+  "day_cutoff_hour",
+  "column_break_timing",
+  "pay_due_days_after",
+  "pay_cutoff_time",
+  "punch_section",
+  "punch_source",
+  "gate_pass_section",
+  "enable_gate_pass",
+  "gate_pass_doctype",
+  "column_break_gate_pass",
+  "gate_pass_employee_field",
+  "gate_pass_date_field",
+  "employee_section",
+  "create_employee",
+  "company",
+  "employment_type",
+  "column_break_employee",
+  "employee_naming_series",
+  "set_device_id",
+  "status_section",
+  "enable_status_toggle",
+  "column_break_status",
+  "activate_days_before",
+  "call_list_section",
+  "call_list_order",
+  "maintenance_section",
+  "seed_missing_defaults"
+ ],
+ "fields": [
+  {
+   "fieldname": "pay_section",
+   "fieldtype": "Section Break",
+   "label": "Pay Rules"
+  },
+  {
+   "default": "800",
+   "description": "Applied to new casuals that have no day rate of their own.",
+   "fieldname": "default_day_rate",
+   "fieldtype": "Currency",
+   "label": "Default Day Rate"
+  },
+  {
+   "default": "9",
+   "description": "Length of a full working day, including the unpunched break.",
+   "fieldname": "full_day_hours",
+   "fieldtype": "Float",
+   "label": "Full Day Hours"
+  },
+  {
+   "default": "1",
+   "description": "Unpunched break deducted from elapsed time.",
+   "fieldname": "break_hours",
+   "fieldtype": "Float",
+   "label": "Break Hours"
+  },
+  {
+   "fieldname": "column_break_pay",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Round day amounts half-up to whole shillings. When off, amounts keep two decimals.",
+   "fieldname": "round_to_shilling",
+   "fieldtype": "Check",
+   "label": "Round to Nearest Shilling"
+  },
+  {
+   "default": "Pro-rata",
+   "description": "How to pay a day with a first and last punch but fewer than the full paid hours (and no Gate Pass).",
+   "fieldname": "short_day_policy",
+   "fieldtype": "Select",
+   "label": "Short Day Policy",
+   "options": "Pro-rata\nPay Nothing\nPay Full Day Rate"
+  },
+  {
+   "fieldname": "timing_section",
+   "fieldtype": "Section Break",
+   "label": "Day and Pay Timing"
+  },
+  {
+   "default": "4",
+   "description": "Hour (0-23) at which the working day rolls over. With 4, a 01:30 clock-out belongs to the previous day.",
+   "fieldname": "day_cutoff_hour",
+   "fieldtype": "Int",
+   "label": "Day Cut-off Hour"
+  },
+  {
+   "fieldname": "column_break_timing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "pay_due_days_after",
+   "fieldtype": "Int",
+   "label": "Pay Due (Days After Last Day)"
+  },
+  {
+   "default": "11:00:00",
+   "fieldname": "pay_cutoff_time",
+   "fieldtype": "Time",
+   "label": "Pay Due Time"
+  },
+  {
+   "fieldname": "punch_section",
+   "fieldtype": "Section Break",
+   "label": "Punches"
+  },
+  {
+   "default": "Employee Checkin",
+   "description": "Employee Checkin reads biometric punches. Manual uses the first and last punch typed on each booking day.",
+   "fieldname": "punch_source",
+   "fieldtype": "Select",
+   "label": "Punch Source",
+   "options": "Employee Checkin\nManual"
+  },
+  {
+   "fieldname": "gate_pass_section",
+   "fieldtype": "Section Break",
+   "label": "Gate Pass"
+  },
+  {
+   "default": "1",
+   "description": "Only used when the Gate Pass doctype is installed. Any submitted pass for the casual on the work date counts.",
+   "fieldname": "enable_gate_pass",
+   "fieldtype": "Check",
+   "label": "Pay Full Day on Approved Gate Pass"
+  },
+  {
+   "default": "Gate Pass",
+   "depends_on": "enable_gate_pass",
+   "fieldname": "gate_pass_doctype",
+   "fieldtype": "Data",
+   "label": "Gate Pass DocType"
+  },
+  {
+   "fieldname": "column_break_gate_pass",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "employee",
+   "depends_on": "enable_gate_pass",
+   "fieldname": "gate_pass_employee_field",
+   "fieldtype": "Data",
+   "label": "Employee Field"
+  },
+  {
+   "default": "date",
+   "depends_on": "enable_gate_pass",
+   "fieldname": "gate_pass_date_field",
+   "fieldtype": "Data",
+   "label": "Date Field"
+  },
+  {
+   "fieldname": "employee_section",
+   "fieldtype": "Section Break",
+   "label": "Employee Creation"
+  },
+  {
+   "default": "1",
+   "fieldname": "create_employee",
+   "fieldtype": "Check",
+   "label": "Create Employee for New Casuals"
+  },
+  {
+   "depends_on": "create_employee",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company"
+  },
+  {
+   "depends_on": "create_employee",
+   "fieldname": "employment_type",
+   "fieldtype": "Link",
+   "label": "Employment Type",
+   "options": "Employment Type"
+  },
+  {
+   "fieldname": "column_break_employee",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "TSK-.###",
+   "depends_on": "create_employee",
+   "fieldname": "employee_naming_series",
+   "fieldtype": "Data",
+   "label": "Employee Naming Series"
+  },
+  {
+   "default": "1",
+   "depends_on": "create_employee",
+   "fieldname": "set_device_id",
+   "fieldtype": "Check",
+   "label": "Set Attendance Device ID to Employee ID"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Active Status Toggle"
+  },
+  {
+   "default": "1",
+   "description": "Casual employees are Active only while booked, Inactive otherwise. Left and Suspended employees are never touched.",
+   "fieldname": "enable_status_toggle",
+   "fieldtype": "Check",
+   "label": "Toggle Employee Status by Booking"
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "depends_on": "enable_status_toggle",
+   "fieldname": "activate_days_before",
+   "fieldtype": "Int",
+   "label": "Activate Days Before"
+  },
+  {
+   "fieldname": "call_list_section",
+   "fieldtype": "Section Break",
+   "label": "Call List"
+  },
+  {
+   "default": "Rating",
+   "description": "Order of suggested casuals on a Staffing Request.",
+   "fieldname": "call_list_order",
+   "fieldtype": "Select",
+   "label": "Call List Order",
+   "options": "Rating\nLeast Recently Engaged\nAlphabetical"
+  },
+  {
+   "fieldname": "maintenance_section",
+   "fieldtype": "Section Break",
+   "label": "Maintenance"
+  },
+  {
+   "description": "Fill empty settings with defaults and create the Casual employment type and the default approval workflow if missing. Never overwrites existing values.",
+   "fieldname": "seed_missing_defaults",
+   "fieldtype": "Button",
+   "label": "Seed Missing Defaults"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-10-02 02:50:09.426309",
+ "modified_by": "Administrator",
+ "module": "Upande Casuals",
+ "name": "Casual Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

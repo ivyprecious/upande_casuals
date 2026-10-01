@@ -1,0 +1,121 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-10-02 02:50:10.443931",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "work_date",
+  "first_punch",
+  "last_punch",
+  "punch_count",
+  "elapsed_hours",
+  "paid_hours",
+  "gate_pass",
+  "day_status",
+  "amount",
+  "manual_amount",
+  "override_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "work_date",
+   "fieldtype": "Date",
+   "label": "Work Date",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "first_punch",
+   "fieldtype": "Datetime",
+   "label": "First Punch",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "last_punch",
+   "fieldtype": "Datetime",
+   "label": "Last Punch",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "punch_count",
+   "fieldtype": "Int",
+   "label": "Punch Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "elapsed_hours",
+   "fieldtype": "Float",
+   "label": "Elapsed Hours",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "paid_hours",
+   "fieldtype": "Float",
+   "label": "Paid Hours",
+   "precision": "2",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "gate_pass",
+   "fieldtype": "Data",
+   "label": "Gate Pass",
+   "read_only": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "day_status",
+   "fieldtype": "Select",
+   "label": "Day Status",
+   "options": "Pending\nFull\nPartial\nGate Pass\nIncomplete\nNo Punch",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "description": "Overrides the computed amount.",
+   "fieldname": "manual_amount",
+   "fieldtype": "Currency",
+   "label": "Manual Amount",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "override_reason",
+   "fieldtype": "Data",
+   "label": "Override Reason",
+   "mandatory_depends_on": "eval:doc.manual_amount"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-02 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Casuals",
+ "name": "Casual Booking Day",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

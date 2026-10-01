@@ -1,0 +1,268 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:employee",
+ "creation": "2026-10-02 02:50:10.297080",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "employee",
+  "full_name",
+  "column_break_head",
+  "register_status",
+  "personal_section",
+  "first_name",
+  "middle_name",
+  "last_name",
+  "column_break_personal",
+  "gender",
+  "date_of_birth",
+  "national_id",
+  "contact_section",
+  "phone",
+  "column_break_contact",
+  "mpesa_number",
+  "role_section",
+  "department",
+  "column_break_role",
+  "designation",
+  "skills",
+  "pay_section",
+  "day_rate",
+  "rate_note",
+  "column_break_pay",
+  "rating",
+  "days_worked",
+  "last_engagement",
+  "notes_section",
+  "notes"
+ ],
+ "fields": [
+  {
+   "description": "Leave blank to create the Employee automatically.",
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "Employee",
+   "options": "Employee",
+   "set_only_once": 1,
+   "unique": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "full_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Full Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Available",
+   "fieldname": "register_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Register Status",
+   "options": "Available\nDo Not Call"
+  },
+  {
+   "fieldname": "personal_section",
+   "fieldtype": "Section Break",
+   "label": "Personal Details"
+  },
+  {
+   "fieldname": "first_name",
+   "fieldtype": "Data",
+   "label": "First Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "middle_name",
+   "fieldtype": "Data",
+   "label": "Middle Name"
+  },
+  {
+   "fieldname": "last_name",
+   "fieldtype": "Data",
+   "label": "Last Name"
+  },
+  {
+   "fieldname": "column_break_personal",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "gender",
+   "fieldtype": "Link",
+   "label": "Gender",
+   "options": "Gender",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date_of_birth",
+   "fieldtype": "Date",
+   "label": "Date Of Birth",
+   "reqd": 1
+  },
+  {
+   "fieldname": "national_id",
+   "fieldtype": "Data",
+   "label": "National ID"
+  },
+  {
+   "fieldname": "contact_section",
+   "fieldtype": "Section Break",
+   "label": "Contact"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Phone",
+   "options": "Phone",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_contact",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "mpesa_number",
+   "fieldtype": "Data",
+   "label": "M-Pesa Number",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "role_section",
+   "fieldtype": "Section Break",
+   "label": "Roles"
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Department",
+   "options": "Department",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_role",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "designation",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Primary Role",
+   "options": "Designation"
+  },
+  {
+   "fieldname": "skills",
+   "fieldtype": "Table",
+   "label": "Other Roles",
+   "options": "On-Call Casual Skill"
+  },
+  {
+   "fieldname": "pay_section",
+   "fieldtype": "Section Break",
+   "label": "Pay and History"
+  },
+  {
+   "description": "Defaults from Casual Settings.",
+   "fieldname": "day_rate",
+   "fieldtype": "Currency",
+   "label": "Day Rate"
+  },
+  {
+   "description": "e.g. Waitress + Steward",
+   "fieldname": "rate_note",
+   "fieldtype": "Data",
+   "label": "Rate Note"
+  },
+  {
+   "fieldname": "column_break_pay",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rating",
+   "fieldtype": "Float",
+   "label": "Rating (out of 5)",
+   "no_copy": 1,
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "days_worked",
+   "fieldtype": "Int",
+   "label": "Days Worked",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_engagement",
+   "fieldtype": "Date",
+   "label": "Last Engagement",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-02 02:50:10.297080",
+ "modified_by": "Administrator",
+ "module": "Upande Casuals",
+ "name": "On-Call Casual",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "full_name,phone,department",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "full_name",
+ "track_changes": 1
+}

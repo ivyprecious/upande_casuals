@@ -87,6 +87,8 @@ app_license = "mit"
 
 # before_install = "upande_casuals.install.before_install"
 # after_install = "upande_casuals.install.after_install"
+after_install = "upande_casuals.setup.after_migrate"
+after_migrate = "upande_casuals.setup.after_migrate"
 
 # Uninstallation
 # ------------
@@ -148,6 +150,16 @@ app_license = "mit"
 
 # Scheduled Tasks
 # ---------------
+
+# The status toggle runs hourly against a business date (now minus the day
+# cut-off), so a 01:30 clock-out is never blocked by an early deactivation.
+scheduler_events = {
+	"hourly": [
+		"upande_casuals.tasks.recompute_open_bookings",
+		"upande_casuals.tasks.update_overdue_flags",
+		"upande_casuals.tasks.daily_status_toggle",
+	],
+}
 
 # scheduler_events = {
 # 	"all": [

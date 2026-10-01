@@ -1,0 +1,22 @@
+{
+ "app": "upande_casuals",
+ "creation": "2026-10-02 09:00:00",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon": "users",
+ "icon_type": "Link",
+ "idx": 0,
+ "label": "Casuals",
+ "link_to": "Casuals",
+ "link_type": "Workspace Sidebar",
+ "modified": "2026-10-02 09:00:00",
+ "modified_by": "Administrator",
+ "name": "Casuals",
+ "owner": "Administrator",
+ "parent_icon": "Frappe HR",
+ "restrict_removal": 0,
+ "roles": [],
+ "sidebar": "Casuals",
+ "standard": 1
+}
