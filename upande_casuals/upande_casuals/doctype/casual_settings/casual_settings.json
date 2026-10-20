@@ -7,6 +7,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "general_tab",
   "pay_section",
   "default_day_rate",
   "full_day_hours",
@@ -41,7 +42,19 @@
   "call_list_section",
   "call_list_order",
   "maintenance_section",
-  "seed_missing_defaults"
+  "seed_missing_defaults",
+  "dashboard_tab",
+  "branding_section",
+  "dashboard_logo",
+  "theme_section",
+  "active_theme",
+  "custom_theme_section",
+  "theme_primary",
+  "theme_accent",
+  "theme_background",
+  "column_break_theme",
+  "theme_card",
+  "theme_text"
  ],
  "fields": [
   {
@@ -256,13 +269,87 @@
    "fieldname": "seed_missing_defaults",
    "fieldtype": "Button",
    "label": "Seed Missing Defaults"
+  },
+  {
+   "fieldname": "general_tab",
+   "fieldtype": "Tab Break",
+   "label": "General"
+  },
+  {
+   "fieldname": "dashboard_tab",
+   "fieldtype": "Tab Break",
+   "label": "Dashboard"
+  },
+  {
+   "fieldname": "branding_section",
+   "fieldtype": "Section Break",
+   "label": "Branding"
+  },
+  {
+   "description": "Shown top-left on the Casual Dashboard. Square or wide images work best.",
+   "fieldname": "dashboard_logo",
+   "fieldtype": "Attach Image",
+   "label": "Dashboard Logo"
+  },
+  {
+   "fieldname": "theme_section",
+   "fieldtype": "Section Break",
+   "label": "Colour Theme"
+  },
+  {
+   "default": "Teal",
+   "description": "Applies to the Casual Dashboard for every user.",
+   "fieldname": "active_theme",
+   "fieldtype": "Select",
+   "label": "Active Theme",
+   "options": "Teal\nForest Green\nWarm Earth\nOcean Blue\nSlate Grey\nCustom"
+  },
+  {
+   "depends_on": "eval:doc.active_theme=='Custom'",
+   "fieldname": "custom_theme_section",
+   "fieldtype": "Section Break",
+   "label": "Custom Theme"
+  },
+  {
+   "default": "#4C7288",
+   "fieldname": "theme_primary",
+   "fieldtype": "Color",
+   "label": "Custom Primary"
+  },
+  {
+   "default": "#8DADBE",
+   "fieldname": "theme_accent",
+   "fieldtype": "Color",
+   "label": "Custom Accent"
+  },
+  {
+   "default": "#F4F6F8",
+   "fieldname": "theme_background",
+   "fieldtype": "Color",
+   "label": "Custom Background"
+  },
+  {
+   "fieldname": "column_break_theme",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "#FFFFFF",
+   "fieldname": "theme_card",
+   "fieldtype": "Color",
+   "label": "Custom Card"
+  },
+  {
+   "default": "#2E2E2E",
+   "fieldname": "theme_text",
+   "fieldtype": "Color",
+   "label": "Custom Text"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-02 02:50:09.426309",
+ "modified": "2026-10-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Casuals",
  "name": "Casual Settings",

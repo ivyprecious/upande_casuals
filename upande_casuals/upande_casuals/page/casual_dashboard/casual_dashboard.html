@@ -1,0 +1,162 @@
+<div class="casual-dashboard">
+	<header class="cd-header">
+		<div class="cd-header-title">
+			<span class="cd-logo"></span>
+			<div>
+				<a class="cd-breadcrumb" href="/desk">&larr; Desk</a>
+				<div class="cd-title">Upande Casuals Management</div>
+				<div class="cd-subtitle"></div>
+			</div>
+		</div>
+		<div class="cd-header-meta">
+			<div class="cd-today"></div>
+			<div class="cd-user"></div>
+		</div>
+		<div class="cd-header-actions">
+			<span class="cd-updated"></span>
+			<button class="cd-icon-btn" data-action="refresh-all" title="Refresh">
+				<svg class="es-icon icon-sm"><use href="#es-line-reload"></use></svg>
+			</button>
+			<button class="cd-icon-btn" data-action="open-theme" title="Colour theme">
+				<svg class="es-icon icon-sm"><use href="#es-line-settings"></use></svg>
+			</button>
+		</div>
+	</header>
+
+	<div class="cd-banner"></div>
+
+	<div class="cd-kpis">
+		<button class="cd-kpi" data-kpi="active_today" data-target="attendance">
+			<div class="cd-kpi-value">–</div>
+			<div class="cd-kpi-label">Active Casuals Today</div>
+			<div class="cd-kpi-delta"></div>
+		</button>
+		<button class="cd-kpi" data-kpi="open_requests" data-target="approvals" data-tab="requests">
+			<div class="cd-kpi-value">–</div>
+			<div class="cd-kpi-label">Open Staffing Requests</div>
+			<div class="cd-kpi-delta"></div>
+		</button>
+		<button class="cd-kpi" data-kpi="pending_approvals" data-target="approvals" data-mine="1">
+			<div class="cd-kpi-value">–</div>
+			<div class="cd-kpi-label">Pending My Approval</div>
+			<div class="cd-kpi-delta"></div>
+		</button>
+		<button class="cd-kpi" data-kpi="payable_this_week" data-target="reports" data-tab="pay">
+			<div class="cd-kpi-value">–</div>
+			<div class="cd-kpi-label">Payable This Week</div>
+			<div class="cd-kpi-delta"></div>
+		</button>
+	</div>
+
+	<section class="cd-card cd-quick-actions" data-section="actions">
+		<button class="cd-action" data-action="add-casual">
+			<svg class="es-icon icon-md"><use href="#es-line-add-people"></use></svg>
+			<span>Add Casual</span>
+		</button>
+		<button class="cd-action" data-action="add-task">
+			<svg class="es-icon icon-md"><use href="#es-line-notes"></use></svg>
+			<span>Add Task</span>
+		</button>
+		<button class="cd-action" data-action="add-request">
+			<svg class="es-icon icon-md"><use href="#es-line-add"></use></svg>
+			<span>Staffing Request</span>
+		</button>
+		<button class="cd-action" data-action="view-reports">
+			<svg class="es-icon icon-md"><use href="#es-line-reports"></use></svg>
+			<span>View Reports</span>
+		</button>
+		<button class="cd-action" data-action="pay-casuals">
+			<svg class="es-icon icon-md"><use href="#es-line-payments"></use></svg>
+			<span>Pay Casuals</span>
+		</button>
+	</section>
+
+	<div class="cd-grid">
+		<section class="cd-card cd-span-full" data-section="approvals">
+			<div class="cd-card-head">
+				<div class="cd-card-title">Staffing Requests</div>
+				<button class="cd-icon-btn" data-action="refresh-section" title="Refresh">
+					<svg class="es-icon icon-xs"><use href="#es-line-reload"></use></svg>
+				</button>
+			</div>
+			<div class="cd-filters">
+				<div class="cd-filter" data-filter="department"></div>
+				<div class="cd-filter" data-filter="from_date"></div>
+				<div class="cd-filter" data-filter="to_date"></div>
+				<div class="cd-chips">
+					<button class="cd-chip active" data-status="">All</button>
+					<button class="cd-chip" data-status="Pending">Pending</button>
+					<button class="cd-chip" data-status="Approved">Approved</button>
+					<button class="cd-chip" data-status="Rejected">Rejected</button>
+					<button class="cd-chip" data-status="Mine">Needs my action</button>
+				</div>
+			</div>
+			<div class="cd-body"></div>
+			<div class="cd-pager"></div>
+		</section>
+
+		<section class="cd-card" data-section="attendance">
+			<div class="cd-card-head">
+				<div class="cd-card-title">Attendance — Last 7 Days</div>
+				<button class="cd-icon-btn" data-action="refresh-section" title="Refresh">
+					<svg class="es-icon icon-xs"><use href="#es-line-reload"></use></svg>
+				</button>
+			</div>
+			<div class="cd-chart"></div>
+			<div class="cd-subhead">Today</div>
+			<div class="cd-body"></div>
+		</section>
+
+		<section class="cd-card" data-section="roster">
+			<div class="cd-card-head">
+				<div class="cd-card-title">Casual Roster</div>
+				<button class="cd-icon-btn" data-action="refresh-section" title="Refresh">
+					<svg class="es-icon icon-xs"><use href="#es-line-reload"></use></svg>
+				</button>
+			</div>
+			<input type="search" class="cd-search" placeholder="Search name or Mpesa number">
+			<div class="cd-body cd-scroll"></div>
+		</section>
+
+		<section class="cd-card cd-span-full" data-section="reports">
+			<div class="cd-card-head">
+				<div class="cd-tabs">
+					<button class="cd-tab active" data-tab="attendance">Attendance Report</button>
+					<button class="cd-tab" data-tab="pay">Pay Summary</button>
+					<button class="cd-tab" data-tab="engagement">Engagement History</button>
+					<button class="cd-tab" data-tab="payments">Payments Awaiting Approval</button>
+				</div>
+				<div class="cd-row-actions">
+					<button class="cd-btn cd-btn-primary" data-action="approve-selected">Approve Selected</button>
+					<button class="cd-btn" data-action="export">Export CSV</button>
+				</div>
+			</div>
+			<div class="cd-filters cd-report-filters"></div>
+			<div class="cd-chart"></div>
+			<div class="cd-body cd-scroll"></div>
+		</section>
+	</div>
+
+	<div class="cd-backdrop"></div>
+	<aside class="cd-drawer">
+		<div class="cd-drawer-head">
+			<div class="cd-drawer-title"></div>
+			<button class="cd-icon-btn" data-action="close-drawer" title="Close">
+				<svg class="es-icon icon-sm"><use href="#es-line-close"></use></svg>
+			</button>
+		</div>
+		<div class="cd-drawer-body"></div>
+	</aside>
+
+	<div class="cd-theme-panel">
+		<div class="cd-theme-head">
+			<div class="cd-card-title">Colour Theme</div>
+			<button class="cd-icon-btn" data-action="close-theme" title="Close">
+				<svg class="es-icon icon-xs"><use href="#es-line-close"></use></svg>
+			</button>
+		</div>
+		<div class="cd-swatches"></div>
+		<div class="cd-custom-colours"></div>
+		<div class="cd-theme-note"></div>
+	</div>
+</div>

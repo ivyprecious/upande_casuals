@@ -10,6 +10,7 @@
  "field_order": [
   "employee",
   "full_name",
+  "image",
   "column_break_head",
   "register_status",
   "personal_section",
@@ -56,6 +57,13 @@
    "in_list_view": 1,
    "label": "Full Name",
    "read_only": 1
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Attach Image",
+   "hidden": 1,
+   "label": "Photo",
+   "no_copy": 1
   },
   {
    "fieldname": "column_break_head",
@@ -222,9 +230,10 @@
   }
  ],
  "grid_page_length": 50,
+ "image_field": "image",
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-02 02:50:10.297080",
+ "modified": "2026-10-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Casuals",
  "name": "On-Call Casual",

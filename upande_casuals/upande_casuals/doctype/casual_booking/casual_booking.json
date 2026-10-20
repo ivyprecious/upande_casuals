@@ -12,6 +12,8 @@
   "event_name",
   "casual",
   "casual_name",
+  "mpesa_number",
+  "image",
   "employee",
   "column_break_main",
   "department",
@@ -74,6 +76,23 @@
    "in_list_view": 1,
    "label": "Casual Name",
    "read_only": 1
+  },
+  {
+   "fieldname": "mpesa_number",
+   "fieldtype": "Data",
+   "label": "Mpesa Number",
+   "options": "Phone",
+   "fetch_from": "casual.mpesa_number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Attach Image",
+   "label": "Photo",
+   "hidden": 1,
+   "no_copy": 1,
+   "fetch_from": "casual.image",
+   "fetch_if_empty": 1
   },
   {
    "fetch_from": "casual.employee",
@@ -287,7 +306,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-10-02 10:00:00.000000",
+ "modified": "2026-10-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Casuals",
  "name": "Casual Booking",
@@ -348,6 +367,13 @@
    "share": 1,
    "submit": 1,
    "write": 1
+  },
+  {
+   "role": "Director",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
   }
  ],
  "row_format": "Dynamic",
@@ -358,5 +384,6 @@
  "sort_order": "DESC",
  "states": [],
  "title_field": "casual_name",
- "track_changes": 1
+ "track_changes": 1,
+ "image_field": "image"
 }

@@ -64,6 +64,9 @@ app_license = "mit"
 # 	"Role": "home_page"
 # }
 
+# Short link that the sidebar opens in its own browser tab.
+website_redirects = [{"source": "/casual-dashboard", "target": "/desk/casual-dashboard"}]
+
 # Generators
 # ----------
 

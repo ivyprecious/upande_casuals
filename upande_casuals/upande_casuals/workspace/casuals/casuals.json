@@ -1,7 +1,7 @@
 {
  "app": "upande_casuals",
  "charts": [],
- "content": "[{\"id\": \"hdr-sc\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Casuals</b></span>\", \"col\": 12}}, {\"id\": \"sc-0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Staffing Request\", \"col\": 4}}, {\"id\": \"sc-1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Casual Booking\", \"col\": 4}}, {\"id\": \"sc-2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"On-Call Casual\", \"col\": 4}}, {\"id\": \"sc-3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Casual Task\", \"col\": 4}}, {\"id\": \"sc-4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Casual Settings\", \"col\": 4}}, {\"id\": \"sc-5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Casual Engagement Register\", \"col\": 4}}]",
+ "content": "[{\"id\": \"hdr-sc\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Casuals</b></span>\", \"col\": 12}}, {\"id\": \"sc-dash\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Casual Dashboard\", \"col\": 4}}, {\"id\": \"sc-0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Staffing Request\", \"col\": 4}}, {\"id\": \"sc-1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Casual Booking\", \"col\": 4}}, {\"id\": \"sc-2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"On-Call Casual\", \"col\": 4}}, {\"id\": \"sc-3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Casual Task\", \"col\": 4}}, {\"id\": \"sc-4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Casual Settings\", \"col\": 4}}, {\"id\": \"sc-5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Casual Engagement Register\", \"col\": 4}}]",
  "creation": "2026-10-02 09:00:00.000000",
  "custom_blocks": [],
  "docstatus": 0,
@@ -14,7 +14,7 @@
  "is_hidden": 0,
  "label": "Casuals",
  "links": [],
- "modified": "2026-10-02 09:00:00.000000",
+ "modified": "2026-10-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Casuals",
  "name": "Casuals",
@@ -33,10 +33,21 @@
   },
   {
    "role": "Accounts User"
+  },
+  {
+   "role": "Director"
   }
  ],
  "sequence_id": 51.0,
  "shortcuts": [
+  {
+   "color": "Cyan",
+   "doc_view": "",
+   "label": "Casual Dashboard",
+   "link_to": null,
+   "type": "URL",
+   "url": "/casual-dashboard"
+  },
   {
    "color": "Blue",
    "doc_view": "List",
