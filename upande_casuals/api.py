@@ -13,6 +13,7 @@ from collections import Counter, defaultdict
 
 import frappe
 from frappe import _
+from frappe.desk.utils import provide_binary_file
 from frappe.model.workflow import (
 	WorkflowStateError,
 	apply_workflow,
@@ -23,6 +24,8 @@ from frappe.model.workflow import (
 )
 from frappe.utils import add_days, cint, flt, get_datetime, getdate
 from frappe.utils.csvutils import build_csv_response
+from frappe.utils.pdf import get_pdf
+from frappe.utils.xlsxutils import build_xlsx_response
 
 from upande_casuals.pay_engine import PRO_RATA, compute_day, day_window, get_gate_pass
 from upande_casuals.tasks import business_date, get_settings
@@ -777,17 +780,19 @@ def get_engagement_history(weeks=12):
 	]
 
 
-@frappe.whitelist()
-def export_report(
-	report,
-	from_date=None,
-	to_date=None,
-	department=None,
-	weeks=12,
-	casual=None,
-	task=None,
-	designation=None,
+REPORT_TITLES = {
+	"attendance": "Attendance Report",
+	"pay": "Pay Summary",
+	"engagement": "Engagement History",
+	"payments": "Payments Awaiting Approval",
+}
+EXPORT_FORMATS = ("CSV", "Excel", "PDF")
+
+
+def _report_data(
+	report, from_date=None, to_date=None, department=None, weeks=12, casual=None, task=None, designation=None
 ):
+	"""Header row plus data rows for a dashboard report, as shown with its filters."""
 	if report == "attendance":
 		data = [
 			[
@@ -868,10 +873,102 @@ def export_report(
 				"",
 			]
 		)
+	elif report == "payments":
+		data = [
+			[
+				"Booking",
+				"Casual Name",
+				"Department",
+				"From",
+				"To",
+				"Gross Pay (KES)",
+				"Mpesa Number",
+				"Status",
+			]
+		]
+		rows = get_pending_bookings(department)
+		for r in rows:
+			data.append(
+				[
+					r.name,
+					r.casual_name,
+					r.department,
+					r.from_date,
+					r.to_date,
+					flt(r.total_amount),
+					r.mpesa_number,
+					r.workflow_state,
+				]
+			)
+		data.append(["Total", "", "", "", "", sum(flt(r.total_amount) for r in rows), "", ""])
 	elif report == "engagement":
 		data = [["Week Starting", "Casual Days"]]
 		data += [[r["week_start"], r["casual_days"]] for r in get_engagement_history(weeks)]
 	else:
 		frappe.throw(_("Unknown report {0}.").format(report))
 
-	build_csv_response(data, f"casual-{report}-{from_date or ''}-{to_date or ''}".rstrip("-"))
+	return data
+
+
+@frappe.whitelist()
+def export_report(
+	report,
+	file_format="CSV",
+	from_date=None,
+	to_date=None,
+	department=None,
+	weeks=12,
+	casual=None,
+	task=None,
+	designation=None,
+):
+	if report not in REPORT_TITLES:
+		frappe.throw(_("Unknown report {0}.").format(report))
+	if file_format not in EXPORT_FORMATS:
+		frappe.throw(_("Unknown export format {0}.").format(file_format))
+
+	data = _report_data(report, from_date, to_date, department, weeks, casual, task, designation)
+	dated = report in ("attendance", "pay")
+	filename = f"casual-{report}-{from_date}-{to_date}" if dated else f"casual-{report}"
+	if file_format == "CSV":
+		build_csv_response(data, filename)
+	elif file_format == "Excel":
+		build_xlsx_response(data, filename)
+	else:
+		html = frappe.render_template(
+			"upande_casuals/templates/report_export.html",
+			{
+				"title": _(REPORT_TITLES[report]),
+				"subtitle": _report_subtitle(report, from_date, to_date, weeks, department),
+				"header": data[0],
+				"rows": [[_pdf_cell(v) for v in row] for row in data[1:]],
+				"generated_on": frappe.utils.format_datetime(frappe.utils.now_datetime()),
+				"company": frappe.db.get_single_value(SETTINGS, "company"),
+			},
+		)
+		provide_binary_file(filename, "pdf", get_pdf(html, {"orientation": "Landscape"}))
+
+
+def _pdf_cell(value):
+	from datetime import date, datetime
+
+	if isinstance(value, bool) or value is None:
+		return {"value": value or "", "num": False}
+	if isinstance(value, int | float):
+		fieldtype = "Int" if isinstance(value, int) else "Float"
+		return {"value": frappe.format(value, {"fieldtype": fieldtype, "precision": 2}), "num": True}
+	if isinstance(value, datetime):
+		return {"value": frappe.format(value, "Datetime"), "num": False}
+	if isinstance(value, date):
+		return {"value": frappe.format(value, "Date"), "num": False}
+	return {"value": value, "num": False}
+
+
+def _report_subtitle(report, from_date, to_date, weeks, department):
+	if report == "engagement":
+		period = _("Last {0} weeks").format(cint(weeks))
+	elif report == "payments":
+		period = _("All bookings awaiting approval")
+	else:
+		period = _("{0} to {1}").format(frappe.format(from_date, "Date"), frappe.format(to_date, "Date"))
+	return f"{period} · {department}" if department else period

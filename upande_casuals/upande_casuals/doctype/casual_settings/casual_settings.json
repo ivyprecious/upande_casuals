@@ -41,6 +41,8 @@
   "activate_days_before",
   "call_list_section",
   "call_list_order",
+  "returnable_section",
+  "returnable_items",
   "maintenance_section",
   "seed_missing_defaults",
   "dashboard_tab",
@@ -260,6 +262,18 @@
    "options": "Rating\nLeast Recently Engaged\nAlphabetical"
   },
   {
+   "fieldname": "returnable_section",
+   "fieldtype": "Section Break",
+   "label": "Returnable Items",
+   "description": "Items casuals must hand back, e.g. T-Shirt. Each booking gets a Returned tick per item, and a booking cannot be marked Paid until every item is ticked. Leave empty to turn this off."
+  },
+  {
+   "fieldname": "returnable_items",
+   "fieldtype": "Table",
+   "label": "Returnable Items",
+   "options": "Casual Returnable Item"
+  },
+  {
    "fieldname": "maintenance_section",
    "fieldtype": "Section Break",
    "label": "Maintenance"
@@ -349,7 +363,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-20 12:00:00.000000",
+ "modified": "2026-10-21 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Casuals",
  "name": "Casual Settings",

@@ -65,6 +65,10 @@
 			<svg class="es-icon icon-md"><use href="#es-line-reports"></use></svg>
 			<span>View Reports</span>
 		</button>
+		<button class="cd-action" data-action="engagement-register" title="Opens in a new tab">
+			<svg class="es-icon icon-md"><use href="#es-line-table-view"></use></svg>
+			<span>Engagement Register</span>
+		</button>
 		<button class="cd-action" data-action="pay-casuals">
 			<svg class="es-icon icon-md"><use href="#es-line-payments"></use></svg>
 			<span>Pay Casuals</span>
@@ -128,7 +132,9 @@
 				</div>
 				<div class="cd-row-actions">
 					<button class="cd-btn cd-btn-primary" data-action="approve-selected">Approve Selected</button>
-					<button class="cd-btn" data-action="export">Export CSV</button>
+					<button class="cd-btn" data-action="export" data-format="CSV">Export CSV</button>
+					<button class="cd-btn" data-action="export" data-format="Excel">Export Excel</button>
+					<button class="cd-btn" data-action="export" data-format="PDF">Export PDF</button>
 				</div>
 			</div>
 			<div class="cd-filters cd-report-filters"></div>

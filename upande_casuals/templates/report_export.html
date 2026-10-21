@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<style>
+		body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 10px; color: #2e2e2e; }
+		.head { border-bottom: 2px solid #4c7288; padding-bottom: 6px; margin-bottom: 10px; }
+		.company { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
+		h1 { font-size: 16px; margin: 2px 0; }
+		.subtitle { font-size: 11px; color: #4b5563; }
+		table { width: 100%; border-collapse: collapse; }
+		thead { display: table-header-group; }
+		tr { page-break-inside: avoid; }
+		th { background: #eef2f5; text-align: left; font-weight: 600; }
+		th, td { border: 1px solid #d1d5db; padding: 4px 6px; vertical-align: top; }
+		td.num { text-align: right; white-space: nowrap; }
+		tr.total td { font-weight: 600; background: #f9fafb; }
+		.foot { margin-top: 8px; font-size: 9px; color: #6b7280; }
+	</style>
+</head>
+<body>
+	<div class="head">
+		{% if company %}<div class="company">{{ company | e }}</div>{% endif %}
+		<h1>{{ title | e }}</h1>
+		<div class="subtitle">{{ subtitle | e }}</div>
+	</div>
+	{% if rows %}
+	<table>
+		<thead>
+			<tr>{% for h in header %}<th>{{ _(h) | e }}</th>{% endfor %}</tr>
+		</thead>
+		<tbody>
+			{% for row in rows %}
+			<tr{% if row[0].value == "Total" %} class="total"{% endif %}>
+				{% for cell in row %}<td{% if cell.num %} class="num"{% endif %}>{{ cell.value | e }}</td>{% endfor %}
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+	{% else %}
+	<p>{{ _("No records for these filters.") }}</p>
+	{% endif %}
+	<div class="foot">{{ _("Generated {0}").format(generated_on) }}</div>
+</body>
+</html>

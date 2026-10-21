@@ -11,6 +11,9 @@ from frappe.utils import add_days, cint, date_diff, flt, get_time, getdate, now_
 from upande_casuals.pay_engine import compute_booking, effective_amount
 from upande_casuals.tasks import refresh_casual_stats, toggle_status_for
 
+# Roles that may tick returnable items, in any workflow state before Paid.
+RETURNABLE_ROLES = ("HR Manager", "HOD", "Group HR Manager", "System Manager")
+
 
 class CasualBooking(Document):
 	def before_insert(self):
@@ -26,6 +29,7 @@ class CasualBooking(Document):
 		self.validate_overrides()
 		self.sync_days()
 		settings = frappe.get_cached_doc("Casual Settings")
+		self.sync_returnable_items(settings)
 		if settings.punch_source == "Manual" and self.docstatus == 0:
 			compute_booking(self, settings)
 		self.set_pay_due(settings)
@@ -82,6 +86,30 @@ class CasualBooking(Document):
 			row.idx = idx
 		self.set("days", rows)
 
+	def sync_returnable_items(self, settings=None):
+		"""One row per item in Casual Settings. Ticked rows are kept even if the
+		item is later removed from settings, as a record of the return."""
+		settings = settings or frappe.get_cached_doc("Casual Settings")
+		wanted = [r.item_name for r in settings.get("returnable_items") or [] if r.item_name]
+		rows = [r for r in self.returnable_items if r.item_name in wanted or r.returned]
+		have = {r.item_name for r in rows}
+		for item_name in wanted:
+			if item_name not in have:
+				rows.append(
+					frappe.new_doc(
+						"Casual Booking Returnable",
+						parent_doc=self,
+						parentfield="returnable_items",
+						item_name=item_name,
+					)
+				)
+		for idx, row in enumerate(rows, 1):
+			row.idx = idx
+		self.set("returnable_items", rows)
+
+	def pending_returns(self):
+		return [r.item_name for r in self.returnable_items if not r.returned]
+
 	def set_pay_due(self, settings):
 		due_date = add_days(self.to_date, cint(settings.pay_due_days_after))
 		self.pay_due_at = datetime.combine(
@@ -93,10 +121,27 @@ class CasualBooking(Document):
 		self.days_paid = sum(1 for row in self.days if effective_amount(row) > 0)
 		self.total_amount = sum(effective_amount(row) for row in self.days)
 
+	def before_submit(self):
+		# Approving a booking submits it, so this holds for any workflow's approve action.
+		if not self.payment_method:
+			frappe.throw(
+				_("Set a Payment Method on {0} before approving it.").format(self.name),
+				title=_("Payment Method Required"),
+			)
+
 	def before_update_after_submit(self):
 		if self.workflow_state == "Paid":
 			if not self.payment_method:
 				frappe.throw(_("Set a Payment Method before marking the booking as paid."))
+			# Bookings approved before items were added to settings get their rows here.
+			self.sync_returnable_items()
+			if pending := self.pending_returns():
+				frappe.throw(
+					_("{0} cannot be paid until these items are returned: {1}").format(
+						self.name, ", ".join(pending)
+					),
+					title=_("Items Not Returned"),
+				)
 			self.paid_on = self.paid_on or now_datetime()
 			self.paid_by = self.paid_by or frappe.session.user
 			self.is_overdue = 0
@@ -136,3 +181,39 @@ def recalculate(name):
 	compute_booking(doc)
 	doc.save()
 	return doc.as_dict()
+
+
+@frappe.whitelist()
+def set_item_returned(name, item_name, returned):
+	frappe.only_for(RETURNABLE_ROLES)
+	doc = frappe.get_doc("Casual Booking", name)
+	if doc.docstatus == 2 or doc.workflow_state == "Paid":
+		frappe.throw(
+			_("Returned items cannot be changed on a {0} booking.").format(
+				_(doc.workflow_state or "Cancelled")
+			)
+		)
+	doc.sync_returnable_items()
+	row = next((r for r in doc.returnable_items if r.item_name == item_name), None)
+	if not row:
+		frappe.throw(_("{0} is not a returnable item on {1}.").format(item_name, name))
+
+	returned = cint(returned)
+	row.update(
+		{
+			"returned": returned,
+			"returned_by": frappe.session.user if returned else None,
+			"returned_on": now_datetime() if returned else None,
+		}
+	)
+	# Written directly: the tick is allowed in states the user otherwise cannot edit.
+	for r in doc.returnable_items:
+		if r.is_new():
+			r.db_insert()
+		elif r.name == row.name:
+			r.db_update()
+	doc.add_comment(
+		"Info",
+		_("{0} marked {1}").format(item_name, _("Returned") if returned else _("Not Returned")),
+	)
+	return [r.as_dict() for r in doc.returnable_items]

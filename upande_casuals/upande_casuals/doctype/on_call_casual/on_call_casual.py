@@ -25,6 +25,18 @@ class OnCallCasual(Document):
 
 	def validate(self):
 		self.full_name = " ".join(filter(None, (self.first_name, self.middle_name, self.last_name)))
+		self.validate_other_departments()
+
+	def validate_other_departments(self):
+		seen = {self.department}
+		for row in self.other_departments:
+			if row.department in seen:
+				frappe.throw(
+					_("Row {0}: {1} is already the Primary Department or listed above.").format(
+						row.idx, frappe.bold(row.department)
+					)
+				)
+			seen.add(row.department)
 
 	def after_insert(self):
 		frappe.msgprint(

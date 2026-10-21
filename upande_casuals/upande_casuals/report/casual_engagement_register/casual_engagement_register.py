@@ -14,22 +14,10 @@ def execute(filters=None):
 
 def get_columns():
 	return [
+		# Plain Data, so the ID is not shown joined to the name as a Link would be.
+		{"fieldname": "employee_no", "label": _("Employee No"), "fieldtype": "Data", "width": 110},
+		{"fieldname": "employee_name", "label": _("Employee Name"), "fieldtype": "Data", "width": 160},
 		{"fieldname": "work_date", "label": _("Work Date"), "fieldtype": "Date", "width": 100},
-		{
-			"fieldname": "casual",
-			"label": _("Casual"),
-			"fieldtype": "Link",
-			"options": "On-Call Casual",
-			"width": 110,
-		},
-		{"fieldname": "casual_name", "label": _("Casual Name"), "fieldtype": "Data", "width": 160},
-		{
-			"fieldname": "employee",
-			"label": _("Employee"),
-			"fieldtype": "Link",
-			"options": "Employee",
-			"width": 100,
-		},
 		{
 			"fieldname": "department",
 			"label": _("Department"),
@@ -70,6 +58,7 @@ def get_columns():
 		},
 		{"fieldname": "day_status", "label": _("Day Status"), "fieldtype": "Data", "width": 100},
 		{"fieldname": "amount", "label": _("Amount"), "fieldtype": "Currency", "width": 110},
+		{"fieldname": "mpesa_number", "label": _("Mpesa Number"), "fieldtype": "Data", "width": 120},
 		{
 			"fieldname": "booking",
 			"label": _("Booking"),
@@ -106,15 +95,18 @@ def get_data(filters):
 	return frappe.db.sql(
 		f"""
 		select
-			d.work_date, b.casual, b.casual_name, b.employee, b.department, b.designation,
+			ifnull(b.employee, b.casual) as employee_no, b.casual_name as employee_name,
+			d.work_date, b.department, b.designation,
 			b.task, b.event_name, d.first_punch, d.last_punch, d.elapsed_hours, d.paid_hours,
 			d.day_status,
 			case when d.manual_amount != 0 or ifnull(d.override_reason, '') != ''
 				then d.manual_amount else d.amount end as amount,
+			ifnull(nullif(b.mpesa_number, ''), c.mpesa_number) as mpesa_number,
 			b.name as booking, b.workflow_state, b.pay_due_at, b.is_overdue,
 			b.payment_method, b.payment_reference, b.paid_on
 		from `tabCasual Booking Day` d
 		join `tabCasual Booking` b on b.name = d.parent and d.parenttype = 'Casual Booking'
+		left join `tabOn-Call Casual` c on c.name = b.casual
 		where {" and ".join(conditions)}
 		order by d.work_date, b.casual_name
 		""",

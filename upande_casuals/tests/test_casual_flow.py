@@ -4,12 +4,15 @@
 from datetime import datetime, time, timedelta
 
 import frappe
-from frappe.model.workflow import WorkflowTransitionError, apply_workflow
+from frappe.model.workflow import apply_workflow
 from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, getdate, today
 
 from upande_casuals.tasks import business_date
-from upande_casuals.upande_casuals.doctype.casual_booking.casual_booking import recalculate
+from upande_casuals.upande_casuals.doctype.casual_booking.casual_booking import (
+	recalculate,
+	set_item_returned,
+)
 from upande_casuals.upande_casuals.doctype.staffing_request.staffing_request import get_candidates
 
 
@@ -32,6 +35,9 @@ class TestCasualFlow(IntegrationTestCase):
 				"gender": frappe.db.get_value("Gender", {}, "name"),
 				"date_of_birth": "1998-05-04",
 				"phone": "0700000000",
+				"mpesa_number": "0700000000",
+				"national_id": frappe.generate_hash(length=8),
+				"image": "/files/casual-test.png",
 				"department": self.department,
 				**kw,
 			}
@@ -46,6 +52,11 @@ class TestCasualFlow(IntegrationTestCase):
 				"to_date": to_date or from_date,
 			}
 		).insert()
+
+	def set_returnables(self, items):
+		settings = frappe.get_doc("Casual Settings")
+		settings.set("returnable_items", [{"item_name": i} for i in items])
+		settings.save()
 
 	def checkin(self, employee, when):
 		frappe.get_doc({"doctype": "Employee Checkin", "employee": employee, "time": when}).insert()
@@ -160,18 +171,19 @@ class TestCasualFlow(IntegrationTestCase):
 			("Submit for Approval", "Pending Approval"),
 			("Reject", "Rejected"),
 			("Resubmit", "Pending Approval"),
-			("Approve", "Approved"),
 		]:
 			booking = apply_workflow(booking, action)
 			self.assertEqual(booking.workflow_state, state)
-		self.assertEqual(booking.docstatus, 1)
 
-		with self.assertRaises(WorkflowTransitionError):
-			apply_workflow(booking, "Mark Paid")
-
+		# Approving submits the booking, which needs a payment method.
+		with self.assertRaises(frappe.ValidationError):
+			apply_workflow(booking, "Approve")
 		booking.reload()
 		booking.payment_method = self.mode_of_payment
 		booking.save()
+		booking = apply_workflow(booking, "Approve")
+		self.assertEqual((booking.workflow_state, booking.docstatus), ("Approved", 1))
+
 		booking = apply_workflow(booking, "Mark Paid")
 		self.assertEqual(booking.workflow_state, "Paid")
 		self.assertTrue(booking.paid_on)
@@ -220,3 +232,53 @@ class TestCasualFlow(IntegrationTestCase):
 		settings = frappe.get_doc("Casual Settings")
 		settings.gate_pass_doctype = "No Such DocType"
 		self.assertIsNone(get_gate_pass("TSK-000", today(), settings))
+
+	def test_returnable_items_block_payment(self):
+		self.set_returnables(["T-Shirt"])
+		self.addCleanup(self.set_returnables, [])
+
+		casual = self.make_casual()
+		booking = self.make_booking(casual, add_days(today(), -20))
+		self.assertEqual([r.item_name for r in booking.returnable_items], ["T-Shirt"])
+		booking.payment_method = self.mode_of_payment
+		booking.save()
+		booking = apply_workflow(booking, "Submit for Approval")
+		booking = apply_workflow(booking, "Approve")
+
+		with self.assertRaises(frappe.ValidationError):
+			apply_workflow(booking, "Mark Paid")
+
+		set_item_returned(booking.name, "T-Shirt", 1)
+		booking.reload()
+		self.assertTrue(booking.returnable_items[0].returned)
+		self.assertEqual(booking.returnable_items[0].returned_by, frappe.session.user)
+		booking = apply_workflow(booking, "Mark Paid")
+		self.assertEqual(booking.workflow_state, "Paid")
+
+	def test_no_returnable_items_when_settings_empty(self):
+		self.set_returnables([])
+		booking = self.make_booking(self.make_casual(), add_days(today(), 30))
+		self.assertEqual(booking.returnable_items, [])
+
+	def test_other_departments_make_candidates(self):
+		other = frappe.db.get_value(
+			"Department", {"company": self.company, "is_group": 0, "name": ["!=", self.department]}, "name"
+		)
+		if not other:
+			self.skipTest("Needs a second Department")
+		casual = self.make_casual(other_departments=[{"department": other}])
+		day = add_days(business_date(), 40)
+		req = frappe.get_doc(
+			{
+				"doctype": "Staffing Request",
+				"event_name": "Other Dept",
+				"department": other,
+				"from_date": day,
+				"to_date": day,
+				"headcount": 1,
+			}
+		).insert()
+		self.assertIn(casual.name, [c.name for c in get_candidates(req.name)])
+
+		with self.assertRaises(frappe.ValidationError):
+			self.make_casual(other_departments=[{"department": self.department}])

@@ -429,6 +429,12 @@ body.cd-fullscreen #page-casual-dashboard .layout-main-section {
 	background: var(--dash-hover);
 }
 
+.casual-dashboard .cd-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+	background: var(--dash-card);
+}
+
 .casual-dashboard .cd-btn-primary {
 	background: var(--dash-primary);
 	border-color: var(--dash-primary);

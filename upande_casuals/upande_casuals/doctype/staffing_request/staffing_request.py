@@ -90,6 +90,11 @@ def get_candidates(staffing_request):
 					where s.parent = c.name and s.parenttype = 'On-Call Casual'
 						and (s.department = %(department)s or (%(designation)s != '' and s.designation = %(designation)s))
 				)
+				or exists (
+					select 1 from `tabOn-Call Casual Department` od
+					where od.parent = c.name and od.parenttype = 'On-Call Casual'
+						and od.department = %(department)s
+				)
 			)
 			and not exists (
 				select 1 from `tabCasual Booking` b

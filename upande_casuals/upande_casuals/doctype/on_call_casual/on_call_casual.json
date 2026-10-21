@@ -27,6 +27,7 @@
   "mpesa_number",
   "role_section",
   "department",
+  "other_departments",
   "column_break_role",
   "designation",
   "skills",
@@ -61,9 +62,9 @@
   {
    "fieldname": "image",
    "fieldtype": "Attach Image",
-   "hidden": 1,
    "label": "Photo",
-   "no_copy": 1
+   "no_copy": 1,
+   "reqd": 1
   },
   {
    "fieldname": "column_break_head",
@@ -119,7 +120,8 @@
   {
    "fieldname": "national_id",
    "fieldtype": "Data",
-   "label": "National ID"
+   "label": "National ID No",
+   "reqd": 1
   },
   {
    "fieldname": "contact_section",
@@ -142,7 +144,8 @@
    "fieldname": "mpesa_number",
    "fieldtype": "Data",
    "label": "M-Pesa Number",
-   "options": "Phone"
+   "options": "Phone",
+   "reqd": 1
   },
   {
    "fieldname": "role_section",
@@ -154,9 +157,15 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "Department",
+   "label": "Primary Department",
    "options": "Department",
    "reqd": 1
+  },
+  {
+   "fieldname": "other_departments",
+   "fieldtype": "Table",
+   "label": "Other Departments",
+   "options": "On-Call Casual Department"
   },
   {
    "fieldname": "column_break_role",
@@ -233,7 +242,7 @@
  "image_field": "image",
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-20 12:00:00.000000",
+ "modified": "2026-10-21 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Casuals",
  "name": "On-Call Casual",

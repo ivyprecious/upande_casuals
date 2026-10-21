@@ -171,7 +171,7 @@ class CasualDashboard {
 			this.state.start = 0;
 			this.load_approvals();
 		});
-		this.section("approvals").on("click", "[data-page]", (e) => {
+		this.section("approvals").on("click", "[data-page]:not(:disabled)", (e) => {
 			this.state.start = Math.max(
 				0,
 				this.state.start + Number($(e.currentTarget).data("page")) * PAGE_LENGTH
@@ -229,7 +229,9 @@ class CasualDashboard {
 			this.make_report_filters();
 			this.load_report();
 		});
-		this.section("reports").on("click", "[data-action='export']", () => this.export_report());
+		this.section("reports").on("click", "[data-action='export']", (e) =>
+			this.export_report($(e.currentTarget).data("format"))
+		);
 		this.section("reports").on("change", ".cd-pick-all", (e) =>
 			this.section("reports").find(".cd-pick").prop("checked", e.target.checked)
 		);
@@ -246,6 +248,8 @@ class CasualDashboard {
 			"add-task": () => this.add_task(),
 			"add-request": () => this.add_staffing_request(),
 			"view-reports": () => this.focus_section("reports", "attendance"),
+			"engagement-register": () =>
+				window.open(`/app/query-report/${encodeURIComponent("Casual Engagement Register")}`, "_blank"),
 			"pay-casuals": () => this.pay_casuals(),
 		};
 		Object.entries(actions).forEach(([action, fn]) =>
@@ -998,7 +1002,6 @@ class CasualDashboard {
 			],
 		}[tab];
 
-		$s.find("[data-action='export']").toggle(tab !== "payments");
 		$s.find("[data-action='approve-selected']").toggle(tab === "payments");
 
 		this.report_controls = {};
@@ -1255,8 +1258,8 @@ class CasualDashboard {
 			<tbody>${body}</tbody></table>`;
 	}
 
-	export_report() {
-		const args = { report: this.state.report_tab, ...this.report_args() };
+	export_report(file_format) {
+		const args = { report: this.state.report_tab, file_format, ...this.report_args() };
 		window.open(`/api/method/${API}.export_report?${$.param(args)}`);
 	}
 
@@ -1314,7 +1317,12 @@ class CasualDashboard {
 					label: __("Date of Birth"),
 					reqd: 1,
 				},
-				{ fieldname: "national_id", fieldtype: "Data", label: __("ID Number") },
+				{
+					fieldname: "national_id",
+					fieldtype: "Data",
+					label: __("National ID No"),
+					reqd: 1,
+				},
 				{ fieldname: "col1", fieldtype: "Column Break" },
 				{
 					fieldname: "phone",
@@ -1334,7 +1342,7 @@ class CasualDashboard {
 					fieldname: "department",
 					fieldtype: "Link",
 					options: "Department",
-					label: __("Department"),
+					label: __("Primary Department"),
 					reqd: 1,
 				},
 				{
@@ -1360,7 +1368,7 @@ class CasualDashboard {
 					),
 				},
 				{ fieldname: "col2", fieldtype: "Column Break" },
-				{ fieldname: "image", fieldtype: "Attach Image", label: __("Photo") },
+				{ fieldname: "image", fieldtype: "Attach Image", label: __("Photo"), reqd: 1 },
 			],
 			"create_casual",
 			(r) => {
