@@ -7,6 +7,7 @@ import frappe
 from frappe.utils import add_days, cint, flt, getdate, now_datetime, today
 
 from upande_casuals.pay_engine import compute_booking
+from upande_casuals.workflow import get_live_workflow, paid_states
 
 DAY_FIELDS = (
 	"first_punch",
@@ -66,13 +67,14 @@ def _day_snapshot(doc):
 
 def update_overdue_flags():
 	now = now_datetime()
+	paid = paid_states(get_live_workflow("Casual Booking"))
 	rows = frappe.get_all(
 		"Casual Booking",
 		filters={"docstatus": ["<", 2]},
 		fields=["name", "pay_due_at", "workflow_state", "is_overdue"],
 	)
 	for row in rows:
-		overdue = int(bool(row.pay_due_at and now > row.pay_due_at and row.workflow_state != "Paid"))
+		overdue = int(bool(row.pay_due_at and now > row.pay_due_at and row.workflow_state not in paid))
 		if overdue != cint(row.is_overdue):
 			frappe.db.set_value("Casual Booking", row.name, "is_overdue", overdue, update_modified=False)
 

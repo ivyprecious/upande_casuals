@@ -63,8 +63,7 @@
    "fieldname": "image",
    "fieldtype": "Attach Image",
    "label": "Photo",
-   "no_copy": 1,
-   "reqd": 1
+   "no_copy": 1
   },
   {
    "fieldname": "column_break_head",
@@ -242,7 +241,7 @@
  "image_field": "image",
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-21 09:00:00.000000",
+ "modified": "2026-10-27 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Casuals",
  "name": "On-Call Casual",

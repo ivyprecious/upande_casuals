@@ -415,6 +415,46 @@ body.cd-fullscreen #page-casual-dashboard .layout-main-section {
 	color: var(--dash-on-primary);
 }
 
+/* Returnable items on a booking row: tick when returned, cross when not. */
+.casual-dashboard .cd-returnables {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.casual-dashboard .cd-returnable {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0;
+	border: none;
+	background: none;
+	font-size: 12px;
+	color: var(--dash-text);
+	text-align: left;
+}
+
+.casual-dashboard button.cd-returnable {
+	cursor: pointer;
+}
+
+.casual-dashboard button.cd-returnable:hover {
+	text-decoration: underline;
+}
+
+.casual-dashboard .cd-returnable .cd-mark {
+	font-weight: 700;
+	width: 12px;
+}
+
+.casual-dashboard .cd-returnable.returned .cd-mark {
+	color: var(--dash-success);
+}
+
+.casual-dashboard .cd-returnable.missing .cd-mark {
+	color: var(--dash-danger);
+}
+
 .casual-dashboard .cd-btn {
 	padding: 5px 12px;
 	border: 1px solid var(--dash-border);

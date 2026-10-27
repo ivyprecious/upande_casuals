@@ -6,6 +6,10 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint, getdate
 
+from upande_casuals.workflow import approved_states, get_live_workflow
+
+# Roles that may book casuals against an approved request.
+BOOKING_ROLES = ("HR Manager", "HR User")
 CANDIDATE_ORDER = {
 	"Rating": "c.rating desc, c.last_engagement desc",
 	"Least Recently Engaged": "c.last_engagement is not null, c.last_engagement asc, c.rating desc",
@@ -14,6 +18,9 @@ CANDIDATE_ORDER = {
 
 
 class StaffingRequest(Document):
+	def onload(self):
+		self.set_onload("can_book_casuals", can_book_casuals(self))
+
 	def validate(self):
 		if getdate(self.to_date) < getdate(self.from_date):
 			frappe.throw(_("To Date cannot be before From Date."))
@@ -111,3 +118,107 @@ def get_candidates(staffing_request):
 		},
 		as_dict=True,
 	)
+
+
+def can_book_casuals(doc, workflow=None):
+	"""Whether the user can book casuals against doc: HR, and the request is in an
+	approved state of the live workflow (with no workflow: not closed or cancelled)."""
+	if not set(frappe.get_roles()) & set(BOOKING_ROLES):
+		return False
+	workflow = workflow or get_live_workflow("Staffing Request")
+	if workflow:
+		return doc.get(workflow.workflow_state_field) in approved_states(workflow)
+	return doc.status not in ("Closed", "Cancelled")
+
+
+def _booked_count(name):
+	return frappe.db.count("Casual Booking", {"staffing_request": name, "docstatus": ["<", 2]})
+
+
+@frappe.whitelist()
+def get_booking_context(staffing_request):
+	"""Everything the Book Casuals dialog shows: the request and who can be booked."""
+	req = frappe.get_doc("Staffing Request", staffing_request)
+	req.check_permission("read")
+	can_book = can_book_casuals(req)
+	return {
+		"request": {
+			f: req.get(f)
+			for f in ("name", "event_name", "department", "designation", "from_date", "to_date", "headcount")
+		},
+		"booked_count": _booked_count(req.name),
+		"can_book": can_book,
+		"candidates": get_candidates(req.name) if can_book else [],
+	}
+
+
+@frappe.whitelist()
+def book_casuals_for_request(staffing_request, casual_names):
+	"""Create one Casual Booking per casual against an approved staffing request.
+
+	Idempotent: a casual already booked on this request is skipped, as is anyone
+	past the requested headcount or no longer a candidate (not Available, wrong
+	department, or booked elsewhere on these dates). Each booking is made on its
+	own, so one failure does not undo the rest.
+	"""
+	frappe.only_for(BOOKING_ROLES)
+	if isinstance(casual_names, str):
+		casual_names = frappe.parse_json(casual_names)
+	req = frappe.get_doc("Staffing Request", staffing_request)
+	req.check_permission("read")
+	if not can_book_casuals(req):
+		frappe.throw(_("Casuals can only be booked on an approved staffing request."))
+
+	already = set(
+		frappe.get_all(
+			"Casual Booking",
+			filters={"staffing_request": req.name, "docstatus": ["<", 2]},
+			pluck="casual",
+		)
+	)
+	candidates = {c.name for c in get_candidates(req.name)}
+	remaining = cint(req.headcount) - _booked_count(req.name)
+
+	created, skipped = [], []
+	for casual in dict.fromkeys(casual_names or []):
+		if casual in already:
+			reason = _("Already booked on this request")
+		elif remaining <= 0:
+			reason = _("Fully booked")
+		elif casual not in candidates:
+			reason = _("Not available for this request")
+		else:
+			reason = None
+		if reason:
+			skipped.append({"casual": casual, "reason": reason})
+			continue
+
+		frappe.db.savepoint("book_casual")
+		try:
+			booking = frappe.get_doc(
+				{
+					"doctype": "Casual Booking",
+					"staffing_request": req.name,
+					"casual": casual,
+					"from_date": req.from_date,
+					"to_date": req.to_date,
+					"task": req.task,
+					"department": req.department,
+					"designation": req.designation,
+				}
+			).insert()
+		except Exception as e:
+			frappe.db.rollback(save_point="book_casual")
+			frappe.clear_last_message()
+			skipped.append({"casual": casual, "reason": frappe.utils.strip_html(str(e))})
+			continue
+		created.append(booking.name)
+		already.add(casual)
+		remaining -= 1
+
+	return {
+		"count": len(created),
+		"created": created,
+		"skipped": skipped,
+		"booked_count": _booked_count(req.name),
+	}

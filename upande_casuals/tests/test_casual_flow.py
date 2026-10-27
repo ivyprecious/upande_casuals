@@ -8,12 +8,78 @@ from frappe.model.workflow import apply_workflow
 from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, getdate, today
 
+from upande_casuals import api
 from upande_casuals.tasks import business_date
 from upande_casuals.upande_casuals.doctype.casual_booking.casual_booking import (
+	booking_workflow,
 	recalculate,
 	set_item_returned,
 )
-from upande_casuals.upande_casuals.doctype.staffing_request.staffing_request import get_candidates
+from upande_casuals.upande_casuals.doctype.staffing_request.staffing_request import (
+	book_casuals_for_request,
+	can_book_casuals,
+	get_candidates,
+)
+from upande_casuals.workflow import paid_states, payable_states
+
+# The app never creates workflows (they are set up on each site through the UI),
+# so tests bring their own. Used only when the test site has no booking workflow.
+TEST_WORKFLOW_STATES = [
+	# state, style, doc_status, allow_edit
+	("Booked", "Primary", 0, "HR User"),
+	("Pending Approval", "Warning", 0, "HR Manager"),
+	("Rejected", "Danger", 0, "HR User"),
+	("Approved", "Info", 1, "Accounts User"),
+	("Paid", "Success", 1, "HR Manager"),
+	("Cancelled", "Inverse", 2, "HR Manager"),
+]
+TEST_WORKFLOW_TRANSITIONS = [
+	# from, action, to, role, condition
+	("Booked", "Submit for Approval", "Pending Approval", "HR User", None),
+	("Pending Approval", "Approve", "Approved", "HR Manager", None),
+	("Pending Approval", "Reject", "Rejected", "HR Manager", None),
+	("Rejected", "Resubmit", "Pending Approval", "HR User", None),
+	("Approved", "Mark Paid", "Paid", "HR Manager", "doc.payment_method"),
+	("Approved", "Cancel", "Cancelled", "HR Manager", None),
+]
+
+
+def ensure_test_workflow():
+	if frappe.db.exists("Workflow", {"document_type": "Casual Booking"}):
+		return
+	for state, style, _doc_status, _role in TEST_WORKFLOW_STATES:
+		if not frappe.db.exists("Workflow State", state):
+			frappe.get_doc(
+				{"doctype": "Workflow State", "workflow_state_name": state, "style": style}
+			).insert()
+	for action in {t[1] for t in TEST_WORKFLOW_TRANSITIONS}:
+		if not frappe.db.exists("Workflow Action Master", action):
+			frappe.get_doc({"doctype": "Workflow Action Master", "workflow_action_name": action}).insert()
+	wf = frappe.get_doc(
+		{
+			"doctype": "Workflow",
+			"workflow_name": "Casual Booking Test Workflow",
+			"document_type": "Casual Booking",
+			"workflow_state_field": "workflow_state",
+			"is_active": 1,
+			"send_email_alert": 0,
+		}
+	)
+	for state, _style, doc_status, role in TEST_WORKFLOW_STATES:
+		wf.append("states", {"state": state, "doc_status": str(doc_status), "allow_edit": role})
+	for state, action, next_state, role, condition in TEST_WORKFLOW_TRANSITIONS:
+		wf.append(
+			"transitions",
+			{
+				"state": state,
+				"action": action,
+				"next_state": next_state,
+				"allowed": role,
+				"allow_self_approval": 1,
+				"condition": condition,
+			},
+		)
+	wf.insert()
 
 
 class TestCasualFlow(IntegrationTestCase):
@@ -25,6 +91,7 @@ class TestCasualFlow(IntegrationTestCase):
 		cls.mode_of_payment = frappe.db.get_value("Mode of Payment", {}, "name")
 		if not (cls.company and cls.department and cls.mode_of_payment):
 			raise cls.skipTest(cls, "Needs a Company, Department and Mode of Payment")
+		ensure_test_workflow()
 
 	def make_casual(self, **kw):
 		return frappe.get_doc(
@@ -254,6 +321,78 @@ class TestCasualFlow(IntegrationTestCase):
 		self.assertEqual(booking.returnable_items[0].returned_by, frappe.session.user)
 		booking = apply_workflow(booking, "Mark Paid")
 		self.assertEqual(booking.workflow_state, "Paid")
+
+	def test_book_casuals_for_request(self):
+		first, second = self.make_casual(), self.make_casual()
+		day = add_days(business_date(), 45)
+		req = frappe.get_doc(
+			{
+				"doctype": "Staffing Request",
+				"event_name": "Test Booking Flow",
+				"department": self.department,
+				"from_date": day,
+				"to_date": day,
+				"headcount": 1,
+			}
+		).insert()
+		if not can_book_casuals(req):
+			self.skipTest("This site's Staffing Request workflow needs the request approved first")
+
+		result = book_casuals_for_request(req.name, [first.name, second.name])
+		self.assertEqual(result["count"], 1)
+		self.assertEqual(result["booked_count"], 1)
+		self.assertEqual([s["casual"] for s in result["skipped"]], [second.name])
+		booking = frappe.get_doc("Casual Booking", result["created"][0])
+		self.assertEqual(
+			(booking.staffing_request, booking.casual, str(booking.from_date), booking.department),
+			(req.name, first.name, str(day), self.department),
+		)
+		self.assertEqual(booking.mpesa_number, first.mpesa_number)
+
+		# Idempotent: booking the same casual again changes nothing.
+		again = book_casuals_for_request(req.name, [first.name])
+		self.assertEqual((again["count"], again["booked_count"]), (0, 1))
+		self.assertEqual(frappe.db.get_value("Staffing Request", req.name, "booked_count"), 1)
+
+	def test_pay_casuals_reads_workflow(self):
+		self.set_returnables(["T-Shirt"])
+		self.addCleanup(self.set_returnables, [])
+
+		casual = self.make_casual()
+		day = add_days(today(), -25)
+		booking = self.make_booking(casual, day)
+		booking.payment_method = self.mode_of_payment
+		booking.save()
+		booking = apply_workflow(booking, "Submit for Approval")
+		booking = apply_workflow(booking, "Approve")
+		self.assertIn(booking.workflow_state, payable_states(booking_workflow()))
+
+		preview = api.preview_casual_pay(day, day, [casual.name], self.mode_of_payment)
+		self.assertEqual([r.name for r in preview["rows"]], [booking.name])
+		self.assertTrue(preview["rows"][0].can_pay)
+		self.assertEqual(preview["rows"][0].pending_returns, ["T-Shirt"])
+		self.assertEqual(preview["ready"], [])
+
+		set_item_returned(booking.name, "T-Shirt", 1)
+		preview = api.preview_casual_pay(day, day, [casual.name], self.mode_of_payment)
+		self.assertEqual(preview["ready"], [booking.name])
+
+		result = api.pay_casuals(preview["ready"], self.mode_of_payment)
+		self.assertEqual((result["paid"], result["failed"]), ([booking.name], []))
+		booking.reload()
+		self.assertIn(booking.workflow_state, paid_states(booking_workflow()))
+		self.assertTrue(booking.returnables_locked())
+
+	def test_reason_follows_danger_state(self):
+		booking = self.make_booking(self.make_casual(), add_days(today(), -30))
+		booking = apply_workflow(booking, "Submit for Approval")
+		kinds = {a["action"]: a["kind"] for a in api._actions(booking, api._workflow("Casual Booking"))}
+		danger = frappe.db.get_value("Workflow State", "Rejected", "style") == "Danger"
+		self.assertEqual(kinds["Reject"], "reason" if danger else "forward")
+		self.assertEqual(kinds["Approve"], "forward")
+		if danger:
+			with self.assertRaises(frappe.ValidationError):
+				api.apply_action("Casual Booking", booking.name, "Reject")
 
 	def test_no_returnable_items_when_settings_empty(self):
 		self.set_returnables([])

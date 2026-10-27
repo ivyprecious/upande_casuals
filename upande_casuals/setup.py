@@ -2,52 +2,21 @@
 # For license information, please see license.txt
 
 """Install / migrate seed. Inserts missing records only and never overwrites,
-because users edit settings and the workflow in the UI."""
+because users edit settings in the UI.
+
+Workflows are never created or changed here: they are configured on the site
+through the UI (see the note at the top of api.py)."""
 
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 SETTINGS = "Casual Settings"
 EMPLOYMENT_TYPE = "Casual"
-WORKFLOW_NAME = "Casual Booking Approval"
-
-# State and action names are stable internal keys. Never rename them in code.
-WORKFLOW_STATES = {
-	"Booked": "Primary",
-	"Pending Approval": "Warning",
-	"Approved": "Info",
-	"Paid": "Success",
-	"Rejected": "Danger",
-	"Cancelled": "Inverse",
-}
-WORKFLOW_ACTIONS = ["Submit for Approval", "Approve", "Reject", "Resubmit", "Mark Paid", "Cancel"]
-
-DOC_STATES = [
-	# state, doc_status, allow_edit
-	("Booked", 0, "HR User"),
-	("Pending Approval", 0, "HR Manager"),
-	("Rejected", 0, "HR User"),
-	("Approved", 1, "Accounts User"),
-	("Paid", 1, "HR Manager"),
-	("Cancelled", 2, "HR Manager"),
-]
-TRANSITIONS = [
-	# from, action, to, role, condition
-	("Booked", "Submit for Approval", "Pending Approval", "HR User", None),
-	("Pending Approval", "Approve", "Approved", "HR Manager", None),
-	("Pending Approval", "Reject", "Rejected", "HR Manager", None),
-	("Rejected", "Resubmit", "Pending Approval", "HR User", None),
-	("Approved", "Mark Paid", "Paid", "Accounts User", "doc.payment_method"),
-	("Approved", "Mark Paid", "Paid", "HR Manager", "doc.payment_method"),
-	("Approved", "Cancel", "Cancelled", "HR Manager", None),
-]
 
 
 def after_migrate():
 	ensure_employment_type()
 	seed_settings()
-	ensure_workflow_masters()
-	ensure_workflow()
 	ensure_custom_fields()
 
 
@@ -85,53 +54,6 @@ def seed_settings():
 	if missing:
 		frappe.db.set_single_value(SETTINGS, missing)
 		frappe.clear_document_cache(SETTINGS, SETTINGS)
-
-
-def ensure_workflow_masters():
-	for state, style in WORKFLOW_STATES.items():
-		if not frappe.db.exists("Workflow State", state):
-			frappe.get_doc(
-				{"doctype": "Workflow State", "workflow_state_name": state, "style": style}
-			).insert(ignore_permissions=True)
-	for action in WORKFLOW_ACTIONS:
-		if not frappe.db.exists("Workflow Action Master", action):
-			frappe.get_doc({"doctype": "Workflow Action Master", "workflow_action_name": action}).insert(
-				ignore_permissions=True
-			)
-
-
-def ensure_workflow():
-	# Any workflow on Casual Booking (renamed, edited, inactive) means the user owns it.
-	if frappe.db.exists("Workflow", {"document_type": "Casual Booking"}):
-		return
-
-	wf = frappe.new_doc("Workflow")
-	wf.update(
-		{
-			"workflow_name": WORKFLOW_NAME,
-			"document_type": "Casual Booking",
-			"workflow_state_field": "workflow_state",
-			"is_active": 1,
-			"send_email_alert": 0,
-			# Lets the list view show the Overdue indicator over the workflow state.
-			"override_status": 1,
-		}
-	)
-	for state, doc_status, role in DOC_STATES:
-		wf.append("states", {"state": state, "doc_status": str(doc_status), "allow_edit": role})
-	for state, action, next_state, role, condition in TRANSITIONS:
-		wf.append(
-			"transitions",
-			{
-				"state": state,
-				"action": action,
-				"next_state": next_state,
-				"allowed": role,
-				"allow_self_approval": 1,
-				"condition": condition,
-			},
-		)
-	wf.insert(ignore_permissions=True)
 
 
 def ensure_custom_fields():

@@ -7,6 +7,11 @@ Attendance lives in Casual Booking Day rows and pay on Casual Booking, so there 
 no separate attendance or pay slip doctype. Approvals always go through
 `apply_workflow`, which enforces the role, condition and self-approval rules of
 whatever workflow the site has configured.
+
+Workflows must not be managed in code. They are configured on each site through
+the UI, so this app ships no Workflow or Workflow Transition fixtures and never
+creates or edits them. Anything workflow-aware reads the live workflow at runtime
+(`get_workflow`, `get_transitions`) instead of assuming state or action names.
 """
 
 from collections import Counter, defaultdict
@@ -18,8 +23,6 @@ from frappe.model.workflow import (
 	WorkflowStateError,
 	apply_workflow,
 	get_transitions,
-	get_workflow,
-	get_workflow_name,
 	has_approval_access,
 )
 from frappe.utils import add_days, cint, flt, get_datetime, getdate
@@ -29,11 +32,24 @@ from frappe.utils.xlsxutils import build_xlsx_response
 
 from upande_casuals.pay_engine import PRO_RATA, compute_day, day_window, get_gate_pass
 from upande_casuals.tasks import business_date, get_settings
+from upande_casuals.upande_casuals.doctype.casual_booking.casual_booking import RETURNABLE_ROLES
+from upande_casuals.upande_casuals.doctype.staffing_request.staffing_request import can_book_casuals
+from upande_casuals.workflow import (
+	approval_states,
+	approve_transitions,
+	ended_states,
+	get_live_workflow,
+	is_danger,
+	paid_states,
+	pay_transitions,
+	payable_states,
+	rejected_states,
+	settled_states,
+	sql_not_in,
+)
 
 SETTINGS = "Casual Settings"
 APPROVAL_DOCTYPES = ("Staffing Request", "Casual Booking")
-APPROVE = "Approve"
-REASON_ACTIONS = ("Reject",)
 PRESENT_STATUSES = ("Full", "Partial", "Gate Pass", "Incomplete")
 THEMES = ("Teal", "Forest Green", "Warm Earth", "Ocean Blue", "Slate Grey", "Custom")
 THEME_FIELDS = ("theme_primary", "theme_accent", "theme_background", "theme_card", "theme_text")
@@ -42,9 +58,14 @@ MAX_RANGE_DAYS = 366
 # Same rule as pay_engine.effective_amount, for use inside SQL.
 EFFECTIVE_AMOUNT = """(case when d.manual_amount != 0 or ifnull(d.override_reason, '') != ''
 	then d.manual_amount else d.amount end)"""
-# A booking counts toward attendance and pay unless it was cancelled or rejected.
-LIVE_BOOKING = "b.docstatus < 2 and ifnull(b.workflow_state, '') != 'Rejected'"
 DAY_JOIN = "`tabCasual Booking Day` d join `tabCasual Booking` b on b.name = d.parent and d.parenttype = 'Casual Booking'"
+
+
+def _live_booking():
+	"""SQL: a booking counts toward attendance and pay unless it was cancelled, or
+	is in a state the live workflow rejects into."""
+	rejected = rejected_states(get_live_workflow("Casual Booking"))
+	return f"b.docstatus < 2 and {sql_not_in('b.workflow_state', rejected)}"
 
 
 def _json(value):
@@ -108,27 +129,50 @@ def set_dashboard_theme(theme, custom=None):
 
 
 def _workflow(doctype):
-	return get_workflow(doctype) if get_workflow_name(doctype) else None
+	return get_live_workflow(doctype)
+
+
+def _action_kind(workflow, transition):
+	"""How the dashboard asks before applying a transition, read from its target state:
+	a state coloured Danger in Workflow State needs a reason, a cancelled state a
+	confirmation, and anything else gets a short undo window."""
+	if is_danger(transition.next_state):
+		return "reason"
+	doc_status = next((s.doc_status for s in workflow.states if s.state == transition.next_state), 0)
+	return "confirm" if cint(doc_status) == 2 else "forward"
 
 
 def _actions(doc, workflow):
-	"""Workflow actions the current user can take on doc, in workflow order."""
+	"""Workflow actions the current user can take on doc, in workflow order, as
+	{"action", "kind"} (see _action_kind)."""
 	if not workflow:
 		return []
 	try:
 		transitions = get_transitions(doc, workflow, raise_exception=True)
 	except WorkflowStateError:
 		return []
-	actions = []
+	actions = {}
 	for t in transitions:
 		if t.action not in actions and has_approval_access(frappe.session.user, doc, t):
-			actions.append(t.action)
-	return actions
+			actions[t.action] = _action_kind(workflow, t)
+	return [{"action": action, "kind": kind} for action, kind in actions.items()]
 
 
-def _approval_states(workflow):
-	"""States from which some role can Approve, i.e. the 'awaiting approval' states."""
-	return sorted({t.state for t in workflow.transitions if t.action == APPROVE}) if workflow else []
+def _approve_actions(doc, workflow, actions=None):
+	"""The approve actions (see workflow.py) the current user can take on doc now."""
+	if not workflow:
+		return []
+	state = doc.get(workflow.workflow_state_field)
+	approve = {t.action for t in approve_transitions(workflow) if t.state == state}
+	if actions is None:
+		actions = _actions(doc, workflow)
+	return [a["action"] for a in actions if a["action"] in approve]
+
+
+def _single_approve_action(doc, workflow, actions=None):
+	"""The approve action for bulk approval, or None when there is none or a choice."""
+	approve = _approve_actions(doc, workflow, actions)
+	return approve[0] if len(approve) == 1 else None
 
 
 def _pending_for_user(doctype, limit=200):
@@ -136,39 +180,30 @@ def _pending_for_user(doctype, limit=200):
 	if not workflow:
 		return []
 	roles = set(frappe.get_roles())
-	states = {t.state for t in workflow.transitions if t.action == APPROVE and t.allowed in roles}
+	states = {t.state for t in approve_transitions(workflow) if t.allowed in roles}
 	if not states:
 		return []
 	names = frappe.get_list(
 		doctype, filters={workflow.workflow_state_field: ["in", list(states)]}, pluck="name", limit=limit
 	)
-	return [n for n in names if APPROVE in _actions(frappe.get_doc(doctype, n), workflow)]
+	return [n for n in names if _approve_actions(frappe.get_doc(doctype, n), workflow)]
 
 
 @frappe.whitelist()
 def apply_action(doctype, name, action, reason=None):
 	if doctype not in APPROVAL_DOCTYPES:
 		frappe.throw(_("Actions are not available for {0} here.").format(doctype))
-	if action in REASON_ACTIONS and not (reason or "").strip():
-		frappe.throw(_("Give a reason to {0}.").format(_(action).lower()))
 
 	doc = frappe.get_doc(doctype, name)
 	doc.check_permission("read")
+	kind = next((a["kind"] for a in _actions(doc, _workflow(doctype)) if a["action"] == action), None)
+	if kind == "reason" and not (reason or "").strip():
+		frappe.throw(_("Give a reason to {0}.").format(_(action).lower()))
 	# apply_workflow re-checks the role, condition and self-approval rules.
 	doc = apply_workflow(doc.as_dict(), action)
 	if reason:
 		doc.add_comment("Comment", _("{0}: {1}").format(_(action), reason.strip()))
 	return {"name": doc.name, "workflow_state": doc.get("workflow_state"), "status": doc.get("status")}
-
-
-@frappe.whitelist()
-def approve_staffing_request(name):
-	return apply_action("Staffing Request", name, APPROVE)
-
-
-@frappe.whitelist()
-def reject_staffing_request(name, reason):
-	return apply_action("Staffing Request", name, "Reject", reason)
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +218,7 @@ def _day_rows(work_date):
 			b.name as booking, b.casual, b.casual_name, b.employee, b.department, b.day_rate,
 			b.docstatus as booking_docstatus
 		from {DAY_JOIN}
-		where {LIVE_BOOKING} and d.work_date = %s
+		where {_live_booking()} and d.work_date = %s
 		order by b.casual_name""",
 		work_date,
 		as_dict=True,
@@ -232,7 +267,7 @@ def _live_attendance(work_date, settings):
 def _present_count(work_date):
 	return frappe.db.sql(
 		f"""select count(distinct b.casual) from {DAY_JOIN}
-		where {LIVE_BOOKING} and d.work_date = %s and d.day_status in %s""",
+		where {_live_booking()} and d.work_date = %s and d.day_status in %s""",
 		(work_date, PRESENT_STATUSES),
 	)[0][0]
 
@@ -248,7 +283,7 @@ def get_attendance_overview():
 		f"""select d.work_date, sum(d.day_status in %(present)s) as present,
 			sum(d.day_status = 'No Punch') as absent
 		from {DAY_JOIN}
-		where {LIVE_BOOKING} and d.work_date between %(start)s and %(end)s
+		where {_live_booking()} and d.work_date between %(start)s and %(end)s
 		group by d.work_date""",
 		{"present": PRESENT_STATUSES, "start": start, "end": add_days(today, -1)},
 		as_dict=True,
@@ -274,11 +309,12 @@ def get_attendance_overview():
 
 
 def _amount_between(start, end, unpaid_only=False):
-	paid_filter = "and ifnull(b.workflow_state, '') != 'Paid'" if unpaid_only else ""
+	paid = paid_states(_workflow("Casual Booking"))
+	paid_filter = f"and {sql_not_in('b.workflow_state', paid)}" if unpaid_only else ""
 	return flt(
 		frappe.db.sql(
 			f"""select sum({EFFECTIVE_AMOUNT}) from {DAY_JOIN}
-			where {LIVE_BOOKING} {paid_filter} and d.work_date between %s and %s""",
+			where {_live_booking()} {paid_filter} and d.work_date between %s and %s""",
 			(start, end),
 		)[0][0]
 	)
@@ -312,19 +348,31 @@ def get_summary():
 	}
 
 
+def _state_groups(workflow):
+	"""The live states behind each dashboard status chip, in workflow order.
+
+	Approved: approved states and what follows them. Rejected: states approval
+	rejects into, plus cancelled or Danger states. Pending: everything else.
+	"""
+	if not workflow:
+		return {}
+	settled = settled_states(workflow)
+	closed = (rejected_states(workflow) | ended_states(workflow)) - settled
+	states = [s.state for s in workflow.states]
+	return {
+		"Pending": [s for s in states if s not in settled and s not in closed],
+		"Approved": [s for s in states if s in settled],
+		"Rejected": [s for s in states if s in closed],
+	}
+
+
 def _state_filter(meta, workflow, group):
 	"""Translate a dashboard status chip (Pending / Approved / Rejected) to filters."""
 	if not group:
 		return {}
 	if workflow and meta.has_field(workflow.workflow_state_field):
-		field = workflow.workflow_state_field
-		if group == "Pending":
-			terminal = ("Approved", "Rejected", "Cancelled", "Paid")
-			states = [s.state for s in workflow.states if s.state not in terminal]
-			return {field: ["in", states]}
-		if group == "Rejected":
-			return {field: ["in", ["Rejected", "Cancelled"]]}
-		return {field: group}
+		return {workflow.workflow_state_field: ["in", _state_groups(workflow).get(group) or [""]]}
+	# No workflow: the request's own Status field.
 	return {
 		"status": {"Pending": "Open", "Approved": ["in", ["Filled", "Closed"]], "Rejected": "Cancelled"}[
 			group
@@ -355,11 +403,13 @@ def get_staffing_requests(
 		"event_name",
 		"department",
 		"designation",
+		"task",
 		"from_date",
 		"to_date",
 		"headcount",
 		"booked_count",
 		"status",
+		"notes",
 		"owner",
 	]
 	if meta.has_field("workflow_state"):
@@ -374,9 +424,16 @@ def get_staffing_requests(
 		page_length=cint(page_length) or 20,
 	)
 	for row in rows:
+		doc = frappe.get_doc(doctype, row.name)
 		row.requested_by = frappe.utils.get_fullname(row.owner)
-		row.actions = _actions(frappe.get_doc(doctype, row.name), workflow)
-	return {"rows": rows, "total": len(frappe.get_list(doctype, filters=filters, pluck="name"))}
+		row.actions = _actions(doc, workflow)
+		row.can_book = can_book_casuals(doc, workflow)
+		row.fully_booked = cint(row.booked_count) >= cint(row.headcount)
+	return {
+		"rows": rows,
+		"total": len(frappe.get_list(doctype, filters=filters, pluck="name")),
+		"groups": _state_groups(workflow) if meta.has_field("workflow_state") else {},
+	}
 
 
 @frappe.whitelist()
@@ -384,10 +441,10 @@ def get_pending_bookings(department=None):
 	"""Bookings waiting for pay approval. A booking is the pay record: approving it
 	submits the booking and makes it payable."""
 	workflow = _workflow("Casual Booking")
-	states = _approval_states(workflow)
+	states = approval_states(workflow)
 	if not states:
 		return []
-	filters = {"workflow_state": ["in", states]}
+	filters = {"workflow_state": ["in", list(states)]}
 	if department:
 		filters["department"] = department
 	rows = frappe.get_list(
@@ -410,7 +467,9 @@ def get_pending_bookings(department=None):
 		limit=100,
 	)
 	for row in rows:
-		row.actions = _actions(frappe.get_doc("Casual Booking", row.name), workflow)
+		doc = frappe.get_doc("Casual Booking", row.name)
+		row.actions = _actions(doc, workflow)
+		row.can_approve = bool(_single_approve_action(doc, workflow, row.actions))
 	return rows
 
 
@@ -420,17 +479,131 @@ def approve_bookings(names):
 	names = _json(names)
 	if not names:
 		frappe.throw(_("No bookings selected."))
+	workflow = _workflow("Casual Booking")
 	approved, failed = [], []
 	for name in names:
 		frappe.db.savepoint("casual_approve")
 		try:
-			apply_action("Casual Booking", name, APPROVE)
+			action = _single_approve_action(frappe.get_doc("Casual Booking", name), workflow)
+			if not action:
+				frappe.throw(_("{0} has no approve action for you to take.").format(name))
+			apply_action("Casual Booking", name, action)
 			approved.append(name)
 		except Exception as e:
 			frappe.db.rollback(save_point="casual_approve")
 			frappe.clear_last_message()
 			failed.append({"name": name, "error": frappe.utils.strip_html(str(e))})
 	return {"approved": approved, "failed": failed}
+
+
+def _can_edit(doc, workflow):
+	"""Whether the form would let the user edit doc in its current workflow state."""
+	if doc.docstatus != 0 or not doc.has_permission("write"):
+		return False
+	if not workflow:
+		return True
+	state = next((s for s in workflow.states if s.state == doc.get(workflow.workflow_state_field)), None)
+	return not state or state.allow_edit in frappe.get_roles()
+
+
+def _returnables(doc):
+	"""Returnable items as the form shows them, including items added to Casual
+	Settings after the booking was saved. Nothing is written here."""
+	doc.sync_returnable_items()
+	return [
+		{
+			"item_name": r.item_name,
+			"returned": cint(r.returned),
+			"returned_by": r.returned_by,
+			"returned_on": r.returned_on,
+		}
+		for r in doc.returnable_items
+	]
+
+
+@frappe.whitelist()
+def get_booking_approvals(department=None, from_date=None, to_date=None, status="Mine"):
+	"""Casual Bookings for the approvals panel.
+
+	Mine: bookings the user can take a workflow action on, or whose returned items
+	they still need to tick. Pending: every booking in a state that some role can
+	Approve from. Both are read from the live workflow.
+	"""
+	workflow = _workflow("Casual Booking")
+	if not workflow:
+		return []
+	roles = set(frappe.get_roles())
+	can_tick = bool(roles & set(RETURNABLE_ROLES))
+
+	awaiting = approval_states(workflow)
+	if status == "Pending":
+		states = set(awaiting)
+	else:
+		states = {t.state for t in workflow.transitions if t.state in awaiting and t.allowed in roles}
+		if can_tick:
+			states |= {s.state for s in workflow.states if cint(s.doc_status) < 2}
+	if not states:
+		return []
+
+	filters = {workflow.workflow_state_field: ["in", list(states)], "docstatus": ["<", 2]}
+	if department:
+		filters["department"] = department
+	if from_date:
+		filters["to_date"] = [">=", from_date]
+	if to_date:
+		filters["from_date"] = ["<=", to_date]
+
+	rows = []
+	for name in frappe.get_list(
+		"Casual Booking", filters=filters, pluck="name", order_by="from_date desc", limit=200
+	):
+		doc = frappe.get_doc("Casual Booking", name)
+		actions = _actions(doc, workflow)
+		returnables = _returnables(doc)
+		tickable = can_tick and not doc.returnables_locked()
+		pending_returns = any(not r["returned"] for r in returnables)
+		awaiting_me = doc.workflow_state in awaiting and actions
+		if status != "Pending" and not (awaiting_me or (tickable and pending_returns)):
+			continue
+		rows.append(
+			{
+				**{
+					f: doc.get(f)
+					for f in (
+						"name",
+						"casual",
+						"casual_name",
+						"mpesa_number",
+						"department",
+						"from_date",
+						"to_date",
+						"payment_method",
+						"total_amount",
+						"staffing_request",
+						"workflow_state",
+					)
+				},
+				"actions": actions,
+				"returnables": returnables,
+				"can_tick": tickable,
+				"can_edit": _can_edit(doc, workflow),
+			}
+		)
+	return rows
+
+
+@frappe.whitelist()
+def set_booking_payment_method(name, payment_method):
+	"""Set the payment method from the dashboard. Approving submits the booking,
+	which needs a payment method, so approvers can fill it in without the form."""
+	doc = frappe.get_doc("Casual Booking", name)
+	if not _can_edit(doc, _workflow("Casual Booking")):
+		frappe.throw(_("You cannot edit {0} in its current state.").format(name), frappe.PermissionError)
+	if not frappe.db.exists("Mode of Payment", payment_method):
+		frappe.throw(_("Mode of Payment {0} does not exist.").format(payment_method))
+	doc.payment_method = payment_method
+	doc.save()
+	return {"name": doc.name, "payment_method": doc.payment_method}
 
 
 # ---------------------------------------------------------------------------
@@ -612,8 +785,16 @@ def create_booking(payload):
 # ---------------------------------------------------------------------------
 
 
-def _payable_bookings(from_date, to_date, casuals=None):
-	filters = {"workflow_state": "Approved", "from_date": ["<=", to_date], "to_date": [">=", from_date]}
+def _payable_bookings(from_date, to_date, casuals=None, workflow=None):
+	"""Bookings in a state the live workflow can pay from."""
+	states = payable_states(workflow)
+	if not states:
+		return []
+	filters = {
+		"workflow_state": ["in", list(states)],
+		"from_date": ["<=", to_date],
+		"to_date": [">=", from_date],
+	}
 	if casuals:
 		filters["casual"] = ["in", casuals]
 	return frappe.get_list(
@@ -637,16 +818,47 @@ def _payable_bookings(from_date, to_date, casuals=None):
 	)
 
 
+def _pay_action(doc, workflow, payment_method=None):
+	"""The workflow action the current user may take now to pay doc, or None.
+
+	Read from the live workflow with the same role, condition and self-approval
+	checks as apply_workflow. Conditions are evaluated with the payment method
+	about to be used, since paying sets it.
+	"""
+	pay = {(t.state, t.action, t.next_state) for t in pay_transitions(workflow)}
+	if payment_method:
+		doc.payment_method = payment_method
+	try:
+		transitions = get_transitions(doc, workflow, raise_exception=True)
+	except WorkflowStateError:
+		return None
+	return next(
+		(
+			t.action
+			for t in transitions
+			if (t.state, t.action, t.next_state) in pay and has_approval_access(frappe.session.user, doc, t)
+		),
+		None,
+	)
+
+
 @frappe.whitelist()
-def preview_casual_pay(from_date, to_date, casuals=None):
+def preview_casual_pay(from_date, to_date, casuals=None, payment_method=None):
 	from_date, to_date = _date_range(from_date, to_date)
 	casuals = _json(casuals) or None
-	rows = _payable_bookings(from_date, to_date, casuals)
+	workflow = _workflow("Casual Booking")
+	rows = _payable_bookings(from_date, to_date, casuals, workflow)
+	for row in rows:
+		doc = frappe.get_doc("Casual Booking", row.name)
+		# Same check as the booking's own pay step: every returnable item must be ticked.
+		doc.sync_returnable_items()
+		row.pending_returns = doc.pending_returns()
+		row.can_pay = bool(_pay_action(doc, workflow, payment_method))
+	ready = [r for r in rows if r.can_pay and not r.pending_returns]
 
-	# Bookings in the period that cannot be paid yet, so HR knows what is missing.
+	# Draft bookings in the period: not approved yet, so HR knows what is missing.
 	not_ready_filters = {
-		"workflow_state": ["not in", ["Approved", "Paid", "Rejected", "Cancelled"]],
-		"docstatus": ["<", 2],
+		"docstatus": 0,
 		"from_date": ["<=", to_date],
 		"to_date": [">=", from_date],
 	}
@@ -657,37 +869,42 @@ def preview_casual_pay(from_date, to_date, casuals=None):
 	)
 	return {
 		"rows": rows,
-		"total": sum(flt(r.total_amount) for r in rows),
+		"ready": [r.name for r in ready],
+		"total": sum(flt(r.total_amount) for r in ready),
 		"not_ready": [{"workflow_state": s or _("Draft"), "count": n} for s, n in not_ready.items()],
 	}
 
 
 @frappe.whitelist()
 def pay_casuals(bookings, payment_method, payment_reference=None):
-	"""Mark the previewed Approved bookings as Paid, one at a time so that one
-	failure does not undo the others."""
+	"""Pay the previewed bookings with the pay action the live workflow allows the
+	user, one at a time so that one failure does not undo the others."""
 	bookings = _json(bookings)
 	if not bookings:
 		frappe.throw(_("No bookings selected."))
 	if not frappe.db.exists("Mode of Payment", payment_method):
 		frappe.throw(_("Mode of Payment {0} does not exist.").format(payment_method))
 
+	workflow = _workflow("Casual Booking")
 	paid, failed = [], []
 	for name in bookings:
 		frappe.db.savepoint("casual_pay")
 		try:
 			doc = frappe.get_doc("Casual Booking", name)
 			doc.check_permission("read")
-			if doc.workflow_state != "Approved":
-				frappe.throw(_("{0} is {1}, not Approved.").format(name, doc.workflow_state))
-			# apply_workflow reloads from the database, and Mark Paid requires a payment method.
+			action = _pay_action(doc, workflow, payment_method)
+			if not action:
+				frappe.throw(
+					_("You cannot pay {0} while it is {1}.").format(name, _(doc.workflow_state or "Draft"))
+				)
+			# apply_workflow reloads from the database, so the payment method is stored first.
 			frappe.db.set_value(
 				"Casual Booking",
 				name,
 				{"payment_method": payment_method, "payment_reference": payment_reference},
 				update_modified=False,
 			)
-			apply_workflow(doc.as_dict(), "Mark Paid")
+			apply_workflow(doc.as_dict(), action)
 			paid.append(name)
 		except Exception as e:
 			frappe.db.rollback(save_point="casual_pay")
@@ -717,7 +934,7 @@ def get_casual_attendance(from_date, to_date, department=None):
 			d.elapsed_hours, d.paid_hours, d.day_status, d.gate_pass, d.manual_amount,
 			d.override_reason, {EFFECTIVE_AMOUNT} as amount
 		from {DAY_JOIN}
-		where {LIVE_BOOKING} and d.work_date between %(from_date)s and %(to_date)s {dept}
+		where {_live_booking()} and d.work_date between %(from_date)s and %(to_date)s {dept}
 		order by d.work_date desc, b.casual_name""",
 		{"from_date": from_date, "to_date": to_date, "department": department},
 		as_dict=True,
@@ -747,14 +964,16 @@ def get_pay_summary(from_date, to_date, casual=None, department=None, task=None,
 			sum(d.paid_hours) as total_hours,
 			sum({EFFECTIVE_AMOUNT}) as gross
 		from {DAY_JOIN}
-		where {LIVE_BOOKING} and d.work_date between %(from_date)s and %(to_date)s{extra}
+		where {_live_booking()} and d.work_date between %(from_date)s and %(to_date)s{extra}
 		group by b.name
 		order by b.casual_name, b.from_date""",
 		values,
 		as_dict=True,
 	)
+	paid = paid_states(_workflow("Casual Booking"))
 	for r in rows:
-		r.payment_status = _("Paid") if r.workflow_state == "Paid" else _("Unpaid")
+		r.is_paid = r.workflow_state in paid
+		r.payment_status = _("Paid") if r.is_paid else _("Unpaid")
 	return rows
 
 
@@ -766,7 +985,7 @@ def get_engagement_history(weeks=12):
 	rows = frappe.db.sql(
 		f"""select d.work_date, count(*) as casual_days
 		from {DAY_JOIN}
-		where {LIVE_BOOKING} and d.work_date >= %s and {EFFECTIVE_AMOUNT} > 0
+		where {_live_booking()} and d.work_date >= %s and {EFFECTIVE_AMOUNT} > 0
 		group by d.work_date""",
 		first,
 		as_dict=True,

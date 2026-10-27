@@ -13,6 +13,15 @@ frappe.ui.form.on("Staffing Request", {
 		if (!frm.is_new() && !["Closed", "Cancelled"].includes(frm.doc.status)) {
 			frm.add_custom_button(__("Suggest casuals"), () => frm.trigger("suggest_casuals"));
 		}
+		// Set by the server: HR, and the request is approved in the live workflow.
+		if (!frm.is_new() && frm.doc.__onload?.can_book_casuals) {
+			const btn = frm.add_custom_button(__("Book Casuals"), () =>
+				upande_casuals.book_casuals(frm.doc.name, () => frm.reload_doc())
+			);
+			if (cint(frm.doc.booked_count) >= cint(frm.doc.headcount)) {
+				btn.prop("disabled", true).attr("title", __("Fully booked"));
+			}
+		}
 		if (!frm.is_new() && frm.doc.booked_count) {
 			frm.add_custom_button(__("Bookings"), () =>
 				frappe.set_route("List", "Casual Booking", { staffing_request: frm.doc.name })

@@ -69,6 +69,10 @@
 			<svg class="es-icon icon-md"><use href="#es-line-table-view"></use></svg>
 			<span>Engagement Register</span>
 		</button>
+		<button class="cd-action" data-action="payment-summary" title="Opens in a new tab">
+			<svg class="es-icon icon-md"><use href="#es-line-reports"></use></svg>
+			<span>Payment Summary</span>
+		</button>
 		<button class="cd-action" data-action="pay-casuals">
 			<svg class="es-icon icon-md"><use href="#es-line-payments"></use></svg>
 			<span>Pay Casuals</span>
@@ -78,7 +82,10 @@
 	<div class="cd-grid">
 		<section class="cd-card cd-span-full" data-section="approvals">
 			<div class="cd-card-head">
-				<div class="cd-card-title">Staffing Requests</div>
+				<div class="cd-tabs">
+					<button class="cd-tab active" data-approval-tab="requests">Staffing Requests</button>
+					<button class="cd-tab" data-approval-tab="bookings">Casual Bookings</button>
+				</div>
 				<button class="cd-icon-btn" data-action="refresh-section" title="Refresh">
 					<svg class="es-icon icon-xs"><use href="#es-line-reload"></use></svg>
 				</button>
@@ -87,12 +94,16 @@
 				<div class="cd-filter" data-filter="department"></div>
 				<div class="cd-filter" data-filter="from_date"></div>
 				<div class="cd-filter" data-filter="to_date"></div>
-				<div class="cd-chips">
+				<div class="cd-chips" data-chips="requests">
 					<button class="cd-chip active" data-status="">All</button>
 					<button class="cd-chip" data-status="Pending">Pending</button>
 					<button class="cd-chip" data-status="Approved">Approved</button>
 					<button class="cd-chip" data-status="Rejected">Rejected</button>
 					<button class="cd-chip" data-status="Mine">Needs my action</button>
+				</div>
+				<div class="cd-chips" data-chips="bookings">
+					<button class="cd-chip active" data-booking-status="Mine">Needs my action</button>
+					<button class="cd-chip" data-booking-status="Pending">All awaiting approval</button>
 				</div>
 			</div>
 			<div class="cd-body"></div>

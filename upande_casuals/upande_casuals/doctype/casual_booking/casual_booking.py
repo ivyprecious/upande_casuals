@@ -10,9 +10,14 @@ from frappe.utils import add_days, cint, date_diff, flt, get_time, getdate, now_
 
 from upande_casuals.pay_engine import compute_booking, effective_amount
 from upande_casuals.tasks import refresh_casual_stats, toggle_status_for
+from upande_casuals.workflow import get_live_workflow, paid_states
 
-# Roles that may tick returnable items, in any workflow state before Paid.
+# Roles that may tick returnable items, in any workflow state before the booking is paid.
 RETURNABLE_ROLES = ("HR Manager", "HOD", "Group HR Manager", "System Manager")
+
+
+def booking_workflow():
+	return get_live_workflow("Casual Booking")
 
 
 class CasualBooking(Document):
@@ -110,6 +115,9 @@ class CasualBooking(Document):
 	def pending_returns(self):
 		return [r.item_name for r in self.returnable_items if not r.returned]
 
+	def returnables_locked(self):
+		return self.docstatus == 2 or self.workflow_state in paid_states(booking_workflow())
+
 	def set_pay_due(self, settings):
 		due_date = add_days(self.to_date, cint(settings.pay_due_days_after))
 		self.pay_due_at = datetime.combine(
@@ -129,8 +137,11 @@ class CasualBooking(Document):
 				title=_("Payment Method Required"),
 			)
 
+	def onload(self):
+		self.set_onload("returnables_locked", self.returnables_locked())
+
 	def before_update_after_submit(self):
-		if self.workflow_state == "Paid":
+		if self.workflow_state in paid_states(booking_workflow()):
 			if not self.payment_method:
 				frappe.throw(_("Set a Payment Method before marking the booking as paid."))
 			# Bookings approved before items were added to settings get their rows here.
@@ -187,7 +198,7 @@ def recalculate(name):
 def set_item_returned(name, item_name, returned):
 	frappe.only_for(RETURNABLE_ROLES)
 	doc = frappe.get_doc("Casual Booking", name)
-	if doc.docstatus == 2 or doc.workflow_state == "Paid":
+	if doc.returnables_locked():
 		frappe.throw(
 			_("Returned items cannot be changed on a {0} booking.").format(
 				_(doc.workflow_state or "Cancelled")

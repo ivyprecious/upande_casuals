@@ -47,7 +47,8 @@ frappe.ui.form.on("Casual Booking", {
 		const allowed = ["HR Manager", "HOD", "Group HR Manager", "System Manager"].some((r) =>
 			frappe.user.has_role(r)
 		);
-		const locked = frm.doc.docstatus === 2 || frm.doc.workflow_state === "Paid";
+		// Set by the server from the live workflow: cancelled or already paid.
+		const locked = !!frm.doc.__onload?.returnables_locked;
 		rows.forEach((row) => {
 			const $row = $(`<div class="checkbox">
 				<label>

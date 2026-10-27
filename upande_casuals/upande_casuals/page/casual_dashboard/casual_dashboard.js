@@ -124,6 +124,8 @@ class CasualDashboard {
 		this.palette = PALETTES[DEFAULT_THEME];
 		this.state = {
 			report_tab: "attendance",
+			approval_tab: "requests",
+			booking_status: "Mine",
 			filters: { department: null, from_date: null, to_date: null, status: "" },
 			start: 0,
 			roster: [],
@@ -166,11 +168,25 @@ class CasualDashboard {
 		$r.on("click", ".cd-kpi", (e) => this.on_kpi_click($(e.currentTarget)));
 
 		// Approvals
-		this.section("approvals").on("click", ".cd-chip", (e) => {
+		this.section("approvals").on("click", "[data-approval-tab]", (e) =>
+			this.show_approval_tab($(e.currentTarget).data("approval-tab"))
+		);
+		this.section("approvals").on("click", ".cd-chip[data-status]", (e) => {
 			this.state.filters.status = $(e.currentTarget).data("status") || "";
 			this.state.start = 0;
 			this.load_approvals();
 		});
+		this.section("approvals").on("click", ".cd-chip[data-booking-status]", (e) => {
+			this.state.booking_status = $(e.currentTarget).data("booking-status");
+			this.load_approvals();
+		});
+		this.section("approvals").on("click", "[data-returnable]", (e) => {
+			const $b = $(e.currentTarget);
+			this.set_returned($b.data("name"), $b.data("returnable"), !$b.data("returned"));
+		});
+		this.section("approvals").on("click", "[data-set-payment]", (e) =>
+			this.set_payment_method($(e.currentTarget).data("set-payment"))
+		);
 		this.section("approvals").on("click", "[data-page]:not(:disabled)", (e) => {
 			this.state.start = Math.max(
 				0,
@@ -178,10 +194,18 @@ class CasualDashboard {
 			);
 			this.load_approvals();
 		});
+		$r.on("click", "[data-action='book-casuals']", (e) =>
+			this.book_casuals($(e.currentTarget).data("request"))
+		);
 		$r.on("click", "[data-wf-action]", (e) => {
 			e.stopPropagation();
 			const $b = $(e.currentTarget);
-			this.run_workflow_action($b.data("doctype"), $b.data("name"), $b.data("wf-action"));
+			this.run_workflow_action(
+				$b.data("doctype"),
+				$b.data("name"),
+				$b.data("wf-action"),
+				$b.data("wf-kind")
+			);
 		});
 		this.section("approvals").on("click", "tr[data-request]", (e) =>
 			this.show_request(
@@ -250,6 +274,8 @@ class CasualDashboard {
 			"view-reports": () => this.focus_section("reports", "attendance"),
 			"engagement-register": () =>
 				window.open(`/app/query-report/${encodeURIComponent("Casual Engagement Register")}`, "_blank"),
+			"payment-summary": () =>
+				window.open(`/app/query-report/${encodeURIComponent("Payment Summary")}`, "_blank"),
 			"pay-casuals": () => this.pay_casuals(),
 		};
 		Object.entries(actions).forEach(([action, fn]) =>
@@ -274,26 +300,30 @@ class CasualDashboard {
 	}
 
 	on_kpi_click($card) {
-		let target = $card.data("target");
-		let report_tab = $card.data("tab");
+		const target = $card.data("target");
 		if ($card.data("mine")) {
-			// Payments are approved in the Reports panel, staffing requests up top.
+			// Open whichever approvals tab has something waiting on this user.
 			const pending = this.summary?.pending_by_doctype || {};
 			if (pending["Casual Booking"] && !pending["Staffing Request"]) {
-				target = "reports";
-				report_tab = "payments";
+				this.state.booking_status = "Mine";
+				this.show_approval_tab("bookings");
 			} else {
 				this.filter_requests("Mine");
 			}
 		} else if (target === "approvals") {
 			this.filter_requests("Pending");
 		}
-		this.focus_section(target, target === "reports" ? report_tab : null);
+		this.focus_section(target, target === "reports" ? $card.data("tab") : null);
 	}
 
 	filter_requests(status) {
 		this.state.filters.status = status;
 		this.state.start = 0;
+		this.show_approval_tab("requests");
+	}
+
+	show_approval_tab(tab) {
+		this.state.approval_tab = tab;
 		this.load_approvals();
 	}
 
@@ -476,17 +506,41 @@ class CasualDashboard {
 
 	async load_approvals() {
 		const $s = this.section("approvals");
-		$s.find(".cd-chip")
+		const tab = this.state.approval_tab;
+		$s.find("[data-approval-tab]")
+			.removeClass("active")
+			.filter(`[data-approval-tab="${tab}"]`)
+			.addClass("active");
+		$s.find("[data-chips]").each((_, el) => $(el).toggle($(el).data("chips") === tab));
+		$s.find(".cd-chip[data-status]")
 			.removeClass("active")
 			.filter((_, el) => ($(el).data("status") || "") === this.state.filters.status)
 			.addClass("active");
+		$s.find(".cd-chip[data-booking-status]")
+			.removeClass("active")
+			.filter(`[data-booking-status="${this.state.booking_status}"]`)
+			.addClass("active");
 
-		const { rows, total } = await this.call("get_staffing_requests", {
+		if (tab === "bookings") {
+			const { department, from_date, to_date } = this.state.filters;
+			const rows = (this.booking_rows = await this.call("get_booking_approvals", {
+				department,
+				from_date,
+				to_date,
+				status: this.state.booking_status,
+			}));
+			$s.find(".cd-body").html(this.bookings_table(rows));
+			$s.find(".cd-pager").empty();
+			return;
+		}
+
+		const { rows, total, groups } = await this.call("get_staffing_requests", {
 			...this.state.filters,
 			start: this.state.start,
 			page_length: PAGE_LENGTH,
 		});
 		this.approval_rows = rows;
+		this.render_state_chips(groups);
 		$s.find(".cd-body").html(this.requests_table(rows));
 
 		const from = total ? this.state.start + 1 : 0;
@@ -501,18 +555,29 @@ class CasualDashboard {
 			</span>`);
 	}
 
+	// actions come from the live workflow as {action, kind}; kind decides colour and prompt.
+	// Each status chip covers live workflow states worked out by the server. Its
+	// tooltip names them, and a chip with no states in this workflow is hidden.
+	render_state_chips(groups) {
+		this.section("approvals")
+			.find(".cd-chip[data-status]")
+			.each((_, el) => {
+				const key = $(el).data("status");
+				if (!key || key === "Mine" || !groups || !Object.keys(groups).length) return;
+				const states = groups[key] || [];
+				$(el)
+					.toggle(states.length > 0)
+					.attr("title", states.map((s) => __(s)).join(", "));
+			});
+	}
+
 	action_buttons(doctype, name, actions) {
 		return actions
-			.map((action) => {
-				const cls =
-					action === "Approve"
-						? "cd-btn-primary"
-						: action === "Reject"
-						? "cd-btn-danger"
-						: "";
+			.map(({ action, kind }) => {
+				const cls = { forward: "cd-btn-primary", reason: "cd-btn-danger" }[kind] || "";
 				return `<button class="cd-btn ${cls}" data-wf-action="${esc(
 					action
-				)}" data-doctype="${esc(doctype)}"
+				)}" data-wf-kind="${esc(kind)}" data-doctype="${esc(doctype)}"
 					data-name="${esc(name)}">${esc(__(action))}</button>`;
 			})
 			.join("");
@@ -545,7 +610,127 @@ class CasualDashboard {
 			</tr></thead><tbody>${body}</tbody></table></div>`;
 	}
 
-	run_workflow_action(doctype, name, action) {
+	bookings_table(rows) {
+		if (!rows.length)
+			return empty(
+				this.state.booking_status === "Mine"
+					? __("No casual bookings need your action.")
+					: __("No casual bookings are awaiting approval.")
+			);
+		const body = rows
+			.map((r) => {
+				const href = `/app/casual-booking/${encodeURIComponent(r.name)}`;
+				const payment = r.payment_method
+					? esc(r.payment_method)
+					: `<span class="text-muted">${__("Not set")}</span>`;
+				return `<tr>
+				<td><a class="cd-link" href="${href}" target="_blank">${esc(r.name)}</a></td>
+				<td><b>${esc(r.casual_name)}</b></td>
+				<td>${esc(r.mpesa_number || "–")}</td>
+				<td>${esc(r.department || "–")}</td>
+				<td>${fmt_date(r.from_date)}${
+					r.to_date !== r.from_date ? ` – ${fmt_date(r.to_date)}` : ""
+				}</td>
+				<td>${payment}${
+					r.can_edit
+						? ` <button class="cd-btn" data-set-payment="${esc(r.name)}">${
+								r.payment_method ? __("Change") : __("Set")
+						  }</button>`
+						: ""
+				}</td>
+				<td>${this.returnables_cell(r)}</td>
+				<td>${chip(r.workflow_state)}</td>
+				<td><div class="cd-row-actions">${this.action_buttons(
+					"Casual Booking",
+					r.name,
+					r.actions
+				)}<a class="cd-btn" href="${href}" target="_blank">${__("View")}</a></div></td>
+			</tr>`;
+			})
+			.join("");
+		return `<div class="cd-table-wrap"><table class="cd-table">
+			<thead><tr>
+				<th>${__("Booking")}</th><th>${__("Casual Name")}</th><th>${__("Mpesa Number")}</th>
+				<th>${__("Department")}</th>
+				<th>${__("Dates")}</th><th>${__("Payment Method")}</th>
+				<th>${__("Returnable Items")}</th><th>${__("Status")}</th><th>${__("Actions")}</th>
+			</tr></thead><tbody>${body}</tbody></table></div>`;
+	}
+
+	// Each item as ✓ or ✗; a button when the user may tick it, as on the form.
+	returnables_cell(r) {
+		if (!r.returnables.length) return `<span class="text-muted">–</span>`;
+		const items = r.returnables
+			.map((item) => {
+				const state = item.returned ? "returned" : "missing";
+				const inner = `<span class="cd-mark">${item.returned ? "✓" : "✗"}</span>${esc(
+					item.item_name
+				)}`;
+				const title = item.returned
+					? __("Returned by {0} on {1}", [
+							frappe.user.full_name(item.returned_by),
+							frappe.datetime.str_to_user(item.returned_on),
+					  ])
+					: __("Not returned");
+				return r.can_tick
+					? `<button class="cd-returnable ${state}" title="${esc(title)}"
+						data-name="${esc(r.name)}" data-returnable="${esc(item.item_name)}"
+						data-returned="${item.returned}">${inner}</button>`
+					: `<span class="cd-returnable ${state}" title="${esc(title)}">${inner}</span>`;
+			})
+			.join("");
+		const all_back = r.returnables.every((i) => i.returned);
+		return `<div class="cd-returnables">${items}<span class="text-muted small">${
+			all_back ? __("All returned") : __("Pending")
+		}</span></div>`;
+	}
+
+	set_returned(name, item_name, returned) {
+		frappe
+			.xcall(
+				"upande_casuals.upande_casuals.doctype.casual_booking.casual_booking.set_item_returned",
+				{ name, item_name, returned: returned ? 1 : 0 }
+			)
+			.then(() => {
+				frappe.show_alert({
+					message: __("{0}: {1} marked {2}", [
+						name,
+						item_name,
+						returned ? __("Returned") : __("Not Returned"),
+					]),
+					indicator: returned ? "green" : "orange",
+				});
+				this.load_approvals();
+			});
+	}
+
+	set_payment_method(name) {
+		const row = (this.booking_rows || []).find((r) => r.name === name);
+		const d = new frappe.ui.Dialog({
+			title: __("Payment Method for {0}", [name]),
+			fields: [
+				{
+					fieldname: "payment_method",
+					fieldtype: "Link",
+					options: "Mode of Payment",
+					label: __("Payment Method"),
+					reqd: 1,
+					default: row?.payment_method,
+				},
+			],
+			primary_action_label: __("Save"),
+			primary_action: ({ payment_method }) =>
+				this.call("set_booking_payment_method", { name, payment_method }).then(() => {
+					d.hide();
+					this.load_approvals();
+				}),
+		});
+		d.show();
+	}
+
+	// kind comes from the live workflow (see _action_kind in api.py): "reason" when the
+	// next state is coloured Danger, "confirm" when it cancels, otherwise "forward".
+	run_workflow_action(doctype, name, action, kind) {
 		const apply = (reason) =>
 			this.call("apply_action", { doctype, name, action, reason }).then((r) => {
 				frappe.show_alert({
@@ -555,13 +740,13 @@ class CasualDashboard {
 				this.after_change("approvals", "reports");
 			});
 
-		if (action === "Reject") {
+		if (kind === "reason") {
 			const d = new frappe.ui.Dialog({
-				title: __("Reject {0}", [name]),
+				title: __("{0} {1}", [__(action), name]),
 				fields: [
 					{ fieldname: "reason", fieldtype: "Small Text", label: __("Reason"), reqd: 1 },
 				],
-				primary_action_label: __("Reject"),
+				primary_action_label: __(action),
 				primary_action: ({ reason }) => {
 					d.hide();
 					apply(reason);
@@ -571,13 +756,13 @@ class CasualDashboard {
 			return;
 		}
 
-		if (action === "Approve") {
+		if (kind === "forward") {
 			// Give a short window to undo before anything is sent to the server.
 			let undone = false;
 			const $alert = frappe.show_alert(
 				{
 					message: `${esc(
-						__("Approving {0}…", [name])
+						__("{0}: {1}…", [__(action), name])
 					)} <a class="cd-undo" style="margin-left:8px;font-weight:600">${__(
 						"Undo"
 					)}</a>`,
@@ -589,7 +774,7 @@ class CasualDashboard {
 				undone = true;
 				$alert.remove();
 				frappe.show_alert({
-					message: __("Approval of {0} undone", [name]),
+					message: __("{0} of {1} undone", [__(action), name]),
 					indicator: "orange",
 				});
 			});
@@ -608,15 +793,50 @@ class CasualDashboard {
 				<dt>${__("Request")}</dt><dd><a class="cd-link" href="/app/staffing-request/${encodeURIComponent(
 				r.name
 			)}" target="_blank">${esc(r.name)}</a></dd>
-				<dt>${__("Status")}</dt><dd>${chip(r.workflow_state || r.status)}</dd>
+				<dt>${__("Event / Job")}</dt><dd>${esc(r.event_name)}</dd>
+				<dt>${__("Workflow State")}</dt><dd>${chip(r.workflow_state || r.status)}</dd>
 				<dt>${__("Department")}</dt><dd>${esc(r.department)}</dd>
 				<dt>${__("Role")}</dt><dd>${esc(r.designation || "–")}</dd>
+				<dt>${__("Task")}</dt><dd>${esc(r.task || "–")}</dd>
 				<dt>${__("Dates")}</dt><dd>${fmt_date(r.from_date)} – ${fmt_date(r.to_date)}</dd>
-				<dt>${__("Booked")}</dt><dd>${r.booked_count || 0} / ${r.headcount}</dd>
+				<dt>${__("Casuals Booked / Requested")}</dt><dd>${r.booked_count || 0} / ${
+				r.headcount
+			}</dd>
 				<dt>${__("Requested By")}</dt><dd>${esc(r.requested_by)}</dd>
+				<dt>${__("Special Notes")}</dt><dd>${
+					r.notes ? frappe.utils.escape_html(r.notes).replace(/\n/g, "<br>") : "–"
+				}</dd>
 			</dl>
-			<div class="cd-row-actions">${this.action_buttons("Staffing Request", r.name, r.actions)}</div>`
+			<div class="cd-row-actions">${this.action_buttons(
+				"Staffing Request",
+				r.name,
+				r.actions
+			)}${this.book_casuals_button(r)}</div>`
 		);
+	}
+
+	// Shown on approved requests for HR (r.can_book is worked out by the server).
+	book_casuals_button(r) {
+		if (!r.can_book) return "";
+		// A wrapper carries the tooltip, since disabled buttons do not show one everywhere.
+		return r.fully_booked
+			? `<span title="${esc(__("Fully booked"))}"><button class="cd-btn" disabled>${__(
+					"Book Casuals"
+			  )}</button></span>`
+			: `<button class="cd-btn cd-btn-primary" data-action="book-casuals" data-request="${esc(
+					r.name
+			  )}">${__("Book Casuals")}</button>`;
+	}
+
+	book_casuals(name) {
+		upande_casuals.book_casuals(name, async () => {
+			this.load_summary();
+			await this.load_approvals();
+			// Reopen the side panel with the new booked count, if the request is still listed.
+			const row = (this.approval_rows || []).find((r) => r.name === name);
+			if (row) this.show_request(row);
+			else this.close_drawer();
+		});
 	}
 
 	// ------------------------------------------------------------------
@@ -1093,7 +1313,7 @@ class CasualDashboard {
 		rows.forEach((r) => {
 			const key = r[field] || __("Not Set");
 			groups[key] ??= { paid: 0, unpaid: 0 };
-			groups[key][r.workflow_state === "Paid" ? "paid" : "unpaid"] += flt(r.gross);
+			groups[key][r.is_paid ? "paid" : "unpaid"] += flt(r.gross);
 		});
 		const labels = Object.keys(groups).sort((a, b) => {
 			const total = (k) => groups[k].paid + groups[k].unpaid;
@@ -1153,9 +1373,8 @@ class CasualDashboard {
 		if (!rows.length) return empty(__("No payments are awaiting approval."));
 		const body = rows
 			.map((r) => {
-				const can_approve = r.actions.includes("Approve");
 				return `<tr>
-				<td>${can_approve ? `<input type="checkbox" class="cd-pick" data-name="${esc(r.name)}">` : ""}</td>
+				<td>${r.can_approve ? `<input type="checkbox" class="cd-pick" data-name="${esc(r.name)}">` : ""}</td>
 				<td><b>${esc(r.casual_name)}</b><div class="text-muted small">${esc(r.name)}</div></td>
 				<td>${esc(r.department)}</td>
 				<td>${fmt_date(r.from_date)} – ${fmt_date(r.to_date)}</td>
@@ -1368,7 +1587,7 @@ class CasualDashboard {
 					),
 				},
 				{ fieldname: "col2", fieldtype: "Column Break" },
-				{ fieldname: "image", fieldtype: "Attach Image", label: __("Photo"), reqd: 1 },
+				{ fieldname: "image", fieldtype: "Attach Image", label: __("Photo") },
 			],
 			"create_casual",
 			(r) => {
@@ -1496,6 +1715,8 @@ class CasualDashboard {
 					options: "Mode of Payment",
 					label: __("Payment Method"),
 					reqd: 1,
+					// Workflow conditions on paying can depend on it.
+					onchange: () => reset(),
 				},
 				{
 					fieldname: "payment_reference",
@@ -1521,6 +1742,7 @@ class CasualDashboard {
 				from_date: values.from_date,
 				to_date: values.to_date,
 				casuals: values.casuals?.length ? values.casuals : null,
+				payment_method: values.payment_method,
 			});
 			const not_ready = preview.not_ready.length
 				? `<p class="text-muted small">${__("Not included because not yet approved: {0}", [
@@ -1532,25 +1754,57 @@ class CasualDashboard {
 			if (!preview.rows.length) {
 				d.fields_dict.preview.$wrapper.html(
 					`<div class="text-muted">${__(
-						"No approved, unpaid bookings in this period."
+						"No bookings ready for payment in this period."
 					)}</div>${not_ready}`
 				);
 				preview = null;
 				return;
 			}
+			// Bookings the workflow would refuse (unreturned items, or no pay action for this
+			// user) are listed but left out.
 			const body = preview.rows
-				.map(
-					(r) => `<tr><td>${esc(r.casual_name)}</td><td>${esc(
-						r.mpesa_number || "–"
-					)}</td><td>${esc(r.name)}</td>
+				.map((r) => {
+					const blocked = r.pending_returns.length || !r.can_pay;
+					return `<tr class="${blocked ? "text-muted" : ""}"><td>${esc(
+						r.casual_name
+					)}</td><td>${esc(r.mpesa_number || "–")}</td><td>${esc(r.name)}</td>
 					<td>${fmt_date(r.from_date)} – ${fmt_date(r.to_date)}</td><td class="text-right">${
 						r.days_paid || 0
 					}</td>
 					<td class="text-right">${fmt_hours(r.total_hours)}</td><td class="text-right">${money(
 						r.day_rate
 					)}</td>
-					<td class="text-right">${money(r.total_amount)}</td></tr>`
-				)
+					<td class="text-right">${money(r.total_amount)}</td>
+					<td>${
+						r.pending_returns.length
+							? `<span class="text-danger">✗ ${esc(r.pending_returns.join(", "))}</span>`
+							: `<span class="text-success">✓</span>`
+					}${
+						r.can_pay
+							? ""
+							: `<div class="text-danger small">${__(
+									"You cannot pay this booking ({0})",
+									[esc(__(r.workflow_state))]
+							  )}</div>`
+					}</td></tr>`;
+				})
+				.join("");
+			const unreturned = preview.rows.filter((r) => r.pending_returns.length).length;
+			const not_allowed = preview.rows.filter((r) => !r.can_pay).length;
+			const blocked_note = [
+				unreturned &&
+					__(
+						"{0} bookings are not included because returnable items are still out. Tick them in Approvals → Casual Bookings first.",
+						[unreturned]
+					),
+				not_allowed &&
+					__(
+						"{0} bookings are not included because the workflow does not let you pay them with this payment method.",
+						[not_allowed]
+					),
+			]
+				.filter(Boolean)
+				.map((note) => `<p class="text-danger small">${note}</p>`)
 				.join("");
 			d.fields_dict.preview.$wrapper.html(`
 				<table class="table table-bordered table-condensed">
@@ -1560,13 +1814,18 @@ class CasualDashboard {
 						<th class="text-right">${__("Days")}</th><th class="text-right">${__("Hours")}</th>
 						<th class="text-right">${__("Day Rate")}</th><th class="text-right">${__(
 				"Gross"
-			)}</th></tr></thead>
+			)}</th><th>${__("Items Returned")}</th></tr></thead>
 					<tbody>${body}</tbody>
-					<tfoot><tr><th colspan="7">${__("Total")}</th><th class="text-right">${money(
+					<tfoot><tr><th colspan="7">${__("Total to Pay")}</th><th class="text-right">${money(
 				preview.total
-			)}</th></tr></tfoot>
-				</table>${not_ready}`);
-			d.set_primary_action(__("Mark {0} Bookings Paid", [preview.rows.length]), (v) =>
+			)}</th><th></th></tr></tfoot>
+				</table>${blocked_note}${not_ready}`);
+			if (!preview.ready.length) {
+				preview = null;
+				d.set_primary_action(__("Preview"), (v) => load_preview(v));
+				return;
+			}
+			d.set_primary_action(__("Mark {0} Bookings Paid", [preview.ready.length]), (v) =>
 				confirm_pay(v)
 			);
 		};
@@ -1574,14 +1833,14 @@ class CasualDashboard {
 		const confirm_pay = (values) => {
 			frappe.confirm(
 				__("Mark {0} bookings as paid, totalling {1}?", [
-					preview.rows.length,
+					preview.ready.length,
 					money(preview.total),
 				]),
 				async () => {
 					const r = await this.call(
 						"pay_casuals",
 						{
-							bookings: preview.rows.map((row) => row.name),
+							bookings: preview.ready,
 							payment_method: values.payment_method,
 							payment_reference: values.payment_reference,
 						},
