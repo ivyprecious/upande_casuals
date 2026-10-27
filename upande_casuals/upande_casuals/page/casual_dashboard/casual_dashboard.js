@@ -282,6 +282,12 @@ class CasualDashboard {
 			$r.on("click", `[data-action='${action}']`, fn)
 		);
 
+		// Monthly casual eligibility
+		$r.on("click", "[data-action='view-monthly']", () => this.show_monthly_eligible());
+		$r.on("click", "[data-monthly-move]", (e) =>
+			this.move_to_monthly($(e.currentTarget).data("monthly-move"))
+		);
+
 		// Drawer and theme panel
 		$r.on("click", "[data-action='close-drawer'], .cd-backdrop", () => this.close_drawer());
 		$r.on("click", "[data-action='open-theme']", () =>
@@ -348,6 +354,7 @@ class CasualDashboard {
 		const $btn = this.$root.find("[data-action='refresh-all']").addClass("cd-spin");
 		return Promise.allSettled([
 			this.load_summary(),
+			this.load_monthly_eligible(),
 			this.load_approvals(),
 			this.load_attendance(),
 			this.load_roster(),
@@ -442,6 +449,61 @@ class CasualDashboard {
 			`<div class="cd-greeting">${esc(this.greeting(s))}</div>
 				<div class="cd-banner-summary">${esc(summary)}</div>`
 		);
+	}
+
+	async load_monthly_eligible() {
+		if (!upande_casuals.can_move_to_monthly()) return;
+		const rows = (this.monthly_eligible = await this.call("get_monthly_eligible_casuals"));
+		this.$root.find(".cd-monthly-alert").html(
+			rows.length
+				? `<span>⚠️ ${esc(
+						__(
+							"{0} casual(s) may be eligible for monthly payroll — they have worked 5+ consecutive days.",
+							[rows.length]
+						)
+				  )}</span>
+				<button class="cd-btn" data-action="view-monthly">${__("View List")}</button>`
+				: ""
+		);
+		if (this.$root.hasClass("cd-drawer-open") && this.drawer === "monthly")
+			this.show_monthly_eligible();
+	}
+
+	show_monthly_eligible() {
+		const rows = this.monthly_eligible || [];
+		const body = rows
+			.map(
+				(c) => `<tr>
+				<td><a class="cd-link" href="/app/on-call-casual/${encodeURIComponent(
+					c.name
+				)}" target="_blank">${esc(c.full_name)}</a></td>
+				<td class="cd-num">${cint(c.days_worked)}</td>
+				<td>${fmt_date(c.last_engagement)}</td>
+				<td>${esc(c.department || "–")}</td>
+				<td><button class="cd-btn cd-btn-primary" data-monthly-move="${esc(c.name)}">${__(
+					"Move to Monthly"
+				)}</button></td>
+			</tr>`
+			)
+			.join("");
+		this.open_drawer(
+			__("Eligible for Monthly Payroll"),
+			rows.length
+				? `<table class="cd-table"><thead><tr>
+					<th>${__("Name")}</th><th class="cd-num">${__("Days Worked")}</th>
+					<th>${__("Last Engagement")}</th><th>${__("Primary Department")}</th><th></th>
+				</tr></thead><tbody>${body}</tbody></table>`
+				: empty(__("No casuals are waiting to be moved.")),
+			"monthly"
+		);
+	}
+
+	move_to_monthly(name) {
+		const casual = (this.monthly_eligible || []).find((c) => c.name === name);
+		upande_casuals.move_to_monthly(casual, () => {
+			this.load_monthly_eligible();
+			this.load_roster();
+		});
 	}
 
 	// Counts are the user's own approvals, the same numbers as the Pending My Approval card.
@@ -1877,7 +1939,8 @@ class CasualDashboard {
 	// Drawer
 	// ------------------------------------------------------------------
 
-	open_drawer(title, html) {
+	open_drawer(title, html, kind = null) {
+		this.drawer = kind;
 		this.$root.find(".cd-drawer-title").text(title || "");
 		this.$root.find(".cd-drawer-body").html(html);
 		this.$root.addClass("cd-drawer-open");

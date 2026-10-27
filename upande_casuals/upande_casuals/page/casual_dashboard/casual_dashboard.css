@@ -199,6 +199,24 @@ body.cd-fullscreen #page-casual-dashboard .layout-main-section {
 	opacity: 0.85;
 }
 
+.casual-dashboard .cd-monthly-alert:empty {
+	display: none;
+}
+
+.casual-dashboard .cd-monthly-alert {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 12px;
+	margin: -4px 0 12px;
+	padding: 10px 16px;
+	border-radius: var(--dash-radius);
+	border-left: 4px solid var(--dash-warning);
+	background: color-mix(in srgb, var(--dash-warning) 18%, var(--dash-card));
+	color: color-mix(in srgb, var(--dash-warning) 60%, var(--dash-text));
+	font-size: 13px;
+}
+
 /* ---------- KPI cards ---------- */
 
 .casual-dashboard .cd-kpis {

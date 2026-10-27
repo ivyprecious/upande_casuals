@@ -7,6 +7,7 @@ from frappe.model.document import Document
 from frappe.utils import cint, today
 
 EMPLOYEE_COPY_FIELDS = ("first_name", "middle_name", "last_name", "gender", "date_of_birth", "department")
+CLEAR_ELIGIBLE_ROLES = ("HR Manager", "System Manager")
 
 
 class OnCallCasual(Document):
@@ -26,6 +27,7 @@ class OnCallCasual(Document):
 	def validate(self):
 		self.full_name = " ".join(filter(None, (self.first_name, self.middle_name, self.last_name)))
 		self.validate_other_departments()
+		self.validate_flags()
 
 	def validate_other_departments(self):
 		seen = {self.department}
@@ -38,6 +40,20 @@ class OnCallCasual(Document):
 				)
 			seen.add(row.department)
 
+	def validate_flags(self):
+		"""Both flags are set by the system. The only manual change allowed is an
+		HR Manager or System Manager clearing Monthly Casual Eligible."""
+		before = self.get_doc_before_save()
+		self.moved_to_monthly = cint(before.moved_to_monthly) if before else 0
+		was_eligible = cint(before.monthly_casual_eligible) if before else 0
+		if cint(self.monthly_casual_eligible) == was_eligible:
+			return
+		if was_eligible and set(frappe.get_roles()) & set(CLEAR_ELIGIBLE_ROLES):
+			return
+		if was_eligible:
+			frappe.throw(_("Only an HR Manager or System Manager can clear Monthly Casual Eligible."))
+		self.monthly_casual_eligible = 0
+
 	def after_insert(self):
 		frappe.msgprint(
 			_("Enrol on biometric device with user ID: {0}").format(frappe.bold(self.employee)),
@@ -46,8 +62,9 @@ class OnCallCasual(Document):
 		)
 
 	def on_update(self):
-		# Status is owned by the booking toggle and is never synced from here.
-		if self.employee:
+		# Status is owned by the booking toggle and is never synced from here. Once
+		# moved to monthly payroll, the Employee record is the one HR maintains.
+		if self.employee and not cint(self.moved_to_monthly):
 			frappe.db.set_value(
 				"Employee",
 				self.employee,

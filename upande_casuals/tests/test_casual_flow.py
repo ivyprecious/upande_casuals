@@ -9,7 +9,7 @@ from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, getdate, today
 
 from upande_casuals import api
-from upande_casuals.tasks import business_date
+from upande_casuals.tasks import business_date, flag_monthly_casual_eligible, toggle_status_for
 from upande_casuals.upande_casuals.doctype.casual_booking.casual_booking import (
 	booking_workflow,
 	recalculate,
@@ -20,7 +20,7 @@ from upande_casuals.upande_casuals.doctype.staffing_request.staffing_request imp
 	can_book_casuals,
 	get_candidates,
 )
-from upande_casuals.workflow import paid_states, payable_states
+from upande_casuals.workflow import paid_states, payable_states, settled_states
 
 # The app never creates workflows (they are set up on each site through the UI),
 # so tests bring their own. Used only when the test site has no booking workflow.
@@ -421,3 +421,46 @@ class TestCasualFlow(IntegrationTestCase):
 
 		with self.assertRaises(frappe.ValidationError):
 			self.make_casual(other_departments=[{"department": self.department}])
+
+	def test_monthly_eligibility_needs_five_days_in_a_row(self):
+		casual = self.make_casual()
+		start = add_days(today(), -90)
+		booking = self.make_booking(casual, start, add_days(start, 5))
+		state = sorted(settled_states(booking_workflow()))[0]
+		frappe.db.set_value("Casual Booking", booking.name, {"workflow_state": state, "docstatus": 1})
+
+		def pay_days(unpaid_idx=None):
+			for row in booking.days:
+				amount = 0 if row.idx == unpaid_idx else 800
+				frappe.db.set_value("Casual Booking Day", row.name, "amount", amount)
+			flag_monthly_casual_eligible()
+			return frappe.db.get_value("On-Call Casual", casual.name, "monthly_casual_eligible")
+
+		# Six days with the third unpaid: runs of 2 and 3.
+		self.assertEqual(pay_days(unpaid_idx=3), 0)
+		self.assertEqual(pay_days(), 1)
+		# Never cleared by the job once set.
+		self.assertEqual(pay_days(unpaid_idx=3), 1)
+
+	def test_move_to_monthly_casual(self):
+		casual = self.make_casual()
+		designation = frappe.db.get_value("Designation", {}, "name")
+		joining = add_days(today(), -1)
+		r = api.move_to_monthly_casual(casual.name, joining, self.department, designation)
+
+		self.assertEqual(r["employee"], casual.employee)
+		emp = frappe.get_doc("Employee", casual.employee)
+		self.assertEqual(emp.status, "Active")
+		self.assertEqual(getdate(emp.date_of_joining), getdate(joining))
+		self.assertEqual(emp.designation, designation)
+		self.assertEqual(emp.employment_type, api.MONTHLY_EMPLOYMENT_TYPE)
+		self.assertEqual(emp.custom_is_on_call, 0)
+		casual.reload()
+		self.assertEqual(casual.moved_to_monthly, 1)
+		self.assertEqual(casual.register_status, "Do Not Call")
+
+		# No bookings, yet the status toggle must leave a monthly casual Active.
+		toggle_status_for(casual.name)
+		self.assertEqual(self.employee_status(casual), "Active")
+		with self.assertRaises(frappe.ValidationError):
+			api.move_to_monthly_casual(casual.name, joining, self.department, designation)

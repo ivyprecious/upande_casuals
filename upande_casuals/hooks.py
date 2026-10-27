@@ -27,8 +27,11 @@ app_license = "mit"
 # include js, css files in header of desk.html
 # app_include_css = "/assets/upande_casuals/css/upande_casuals.css"
 # app_include_js = "/assets/upande_casuals/js/upande_casuals.js"
-# Book Casuals dialog, used by the Staffing Request form and the Casual Dashboard.
-app_include_js = "/assets/upande_casuals/js/book_casuals.js"
+# Book Casuals and Move to Monthly dialogs, shared by DocType forms and the Casual Dashboard.
+app_include_js = [
+	"/assets/upande_casuals/js/book_casuals.js",
+	"/assets/upande_casuals/js/move_to_monthly.js",
+]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/upande_casuals/css/upande_casuals.css"
@@ -164,6 +167,7 @@ scheduler_events = {
 		"upande_casuals.tasks.update_overdue_flags",
 		"upande_casuals.tasks.daily_status_toggle",
 	],
+	"daily": ["upande_casuals.tasks.flag_monthly_casual_eligible"],
 }
 
 # scheduler_events = {

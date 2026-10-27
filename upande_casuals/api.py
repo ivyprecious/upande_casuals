@@ -54,6 +54,11 @@ PRESENT_STATUSES = ("Full", "Partial", "Gate Pass", "Incomplete")
 THEMES = ("Teal", "Forest Green", "Warm Earth", "Ocean Blue", "Slate Grey", "Custom")
 THEME_FIELDS = ("theme_primary", "theme_accent", "theme_background", "theme_card", "theme_text")
 MAX_RANGE_DAYS = 366
+MONTHLY_ROLES = ("HR Manager", "HR User", "HR Officer", "Group HR Manager", "System Manager")
+# On TSH, monthly casuals and on-call casuals share this Employment Type. What sets
+# them apart is moved_to_monthly and register_status on the On-Call Casual, and
+# custom_is_on_call on the Employee.
+MONTHLY_EMPLOYMENT_TYPE = "Casual"
 
 # Same rule as pay_engine.effective_amount, for use inside SQL.
 EFFECTIVE_AMOUNT = """(case when d.manual_amount != 0 or ifnull(d.override_reason, '') != ''
@@ -729,6 +734,63 @@ def create_casual(payload):
 		}
 	).insert()
 	return {"name": doc.name, "full_name": doc.full_name, "employee": doc.employee}
+
+
+# ---------------------------------------------------------------------------
+# Move to monthly casual
+# ---------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def get_monthly_eligible_casuals():
+	frappe.only_for(MONTHLY_ROLES)
+	return frappe.get_all(
+		"On-Call Casual",
+		filters={"monthly_casual_eligible": 1, "moved_to_monthly": 0},
+		fields=[
+			"name",
+			"full_name",
+			"employee",
+			"department",
+			"designation",
+			"days_worked",
+			"last_engagement",
+		],
+		order_by="last_engagement desc",
+	)
+
+
+@frappe.whitelist()
+def move_to_monthly_casual(casual_name, date_of_joining, department, designation):
+	"""Put an on-call casual on monthly payroll by updating the Employee it is named
+	after. The Employee keeps its existing ID, whatever its naming series."""
+	frappe.only_for(MONTHLY_ROLES)
+	casual = frappe.get_doc("On-Call Casual", casual_name)
+	if cint(casual.moved_to_monthly):
+		frappe.throw(_("{0} has already been moved to monthly payroll.").format(casual.full_name))
+	if not casual.employee:
+		frappe.throw(_("{0} has no linked Employee.").format(casual.full_name))
+
+	employee = frappe.get_doc("Employee", casual.employee)
+	employee.update(
+		{
+			"date_of_joining": getdate(date_of_joining),
+			"department": department,
+			"designation": designation,
+			"employment_type": MONTHLY_EMPLOYMENT_TYPE,
+			"status": "Active",
+			# Monthly casuals are no longer on call, so they come back into appraisals.
+			"custom_is_on_call": 0,
+		}
+	)
+	employee.save(ignore_permissions=True)
+
+	# Set directly: both flags are system-owned and validate() keeps them that way.
+	frappe.db.set_value(
+		"On-Call Casual", casual.name, {"moved_to_monthly": 1, "register_status": "Do Not Call"}
+	)
+	casual.add_comment("Info", _("Moved to monthly payroll as Employee {0}.").format(employee.name))
+	return {"employee": employee.name, "employee_name": employee.employee_name}
 
 
 @frappe.whitelist()

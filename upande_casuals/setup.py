@@ -68,7 +68,28 @@ def ensure_custom_fields():
 					"insert_after": "employment_type",
 					"description": "Set by Upande Casuals. Used to exclude casuals from appraisals.",
 				}
-			]
+			],
+			"On-Call Casual": [
+				{
+					"fieldname": "monthly_casual_eligible",
+					"label": "Monthly Casual Eligible",
+					"fieldtype": "Check",
+					"default": "0",
+					"read_only": 1,
+					"in_list_view": 1,
+					"insert_after": "register_status",
+					"description": "Set daily once the casual has worked 5 or more days in a row. "
+					"Never cleared automatically.",
+				},
+				{
+					"fieldname": "moved_to_monthly",
+					"label": "Moved to Monthly",
+					"fieldtype": "Check",
+					"default": "0",
+					"read_only": 1,
+					"insert_after": "monthly_casual_eligible",
+				},
+			],
 		},
 		ignore_validate=True,
 	)

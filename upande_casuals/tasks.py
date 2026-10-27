@@ -7,7 +7,7 @@ import frappe
 from frappe.utils import add_days, cint, flt, getdate, now_datetime, today
 
 from upande_casuals.pay_engine import compute_booking
-from upande_casuals.workflow import get_live_workflow, paid_states
+from upande_casuals.workflow import get_live_workflow, paid_states, settled_states
 
 DAY_FIELDS = (
 	"first_punch",
@@ -20,6 +20,7 @@ DAY_FIELDS = (
 	"amount",
 )
 PROTECTED_STATUSES = ("Left", "Suspended")
+MONTHLY_ELIGIBLE_DAYS = 5
 
 
 def get_settings():
@@ -111,9 +112,10 @@ def daily_status_toggle():
 		return
 
 	booked = _booked_casuals(settings)
+	# Casuals moved to monthly payroll stay Active without bookings.
 	casuals = frappe.get_all(
 		"On-Call Casual",
-		filters={"employee": ["is", "set"]},
+		filters={"employee": ["is", "set"], "moved_to_monthly": 0},
 		fields=["name", "employee"],
 	)
 	statuses = dict(
@@ -132,8 +134,8 @@ def toggle_status_for(casual):
 	settings = get_settings()
 	if not (casual and cint(settings.enable_status_toggle)):
 		return
-	employee = frappe.db.get_value("On-Call Casual", casual, "employee")
-	if not employee:
+	employee, moved = frappe.db.get_value("On-Call Casual", casual, ["employee", "moved_to_monthly"])
+	if not employee or cint(moved):
 		return
 	status = frappe.db.get_value("Employee", employee, "status")
 	_apply_status(employee, status, casual in _booked_casuals(settings, casual))
@@ -175,3 +177,47 @@ def refresh_casual_stats(casual):
 		},
 		update_modified=False,
 	)
+
+
+# ---------------------------------------------------------------------------
+# Monthly casual eligibility
+# ---------------------------------------------------------------------------
+
+
+def flag_monthly_casual_eligible():
+	"""Flag casuals who worked MONTHLY_ELIGIBLE_DAYS or more calendar days in a row
+	on approved or paid bookings. The flag is never cleared here."""
+	workflow = get_live_workflow("Casual Booking")
+	if workflow:
+		states = settled_states(workflow)
+		if not states:
+			return
+		booking_ok = "b.workflow_state in ({})".format(", ".join(frappe.db.escape(s) for s in states))
+	else:
+		booking_ok = "b.docstatus = 1"
+
+	rows = frappe.db.sql(
+		f"""select distinct b.casual, d.work_date
+		from `tabCasual Booking Day` d
+		join `tabCasual Booking` b on b.name = d.parent and d.parenttype = 'Casual Booking'
+		join `tabOn-Call Casual` c on c.name = b.casual
+		where c.monthly_casual_eligible = 0 and {booking_ok}
+			and (case when d.manual_amount != 0 or ifnull(d.override_reason, '') != ''
+				then d.manual_amount else d.amount end) > 0
+		order by b.casual, d.work_date""",
+		as_dict=True,
+	)
+
+	eligible, casual, run, prev = set(), None, 0, None
+	for row in rows:
+		date = getdate(row.work_date)
+		if row.casual == casual and (date - prev).days == 1:
+			run += 1
+		else:
+			casual, run = row.casual, 1
+		prev = date
+		if run >= MONTHLY_ELIGIBLE_DAYS:
+			eligible.add(casual)
+
+	for name in eligible:
+		frappe.db.set_value("On-Call Casual", name, "monthly_casual_eligible", 1, update_modified=False)
