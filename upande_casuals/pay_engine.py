@@ -124,11 +124,18 @@ def has_override(row):
 
 
 def compute_booking(doc, settings=None):
-	"""Recompute every day row of a Casual Booking from punches (in place)."""
+	"""Recompute every day row of a Casual Booking from its punches (in place).
+
+	The one pay path: validate (every draft save), the Recalculate button and the
+	hourly job all call it. Every computed field is rewritten on every run, so no
+	stale status, hours or amount survives, and running it twice changes nothing.
+	Rows with an HR override keep their manual amount and are not touched.
+	"""
 	settings = settings or frappe.get_cached_doc("Casual Settings")
 	cutoff = cint(settings.day_cutoff_hour)
 	manual = settings.punch_source == "Manual"
 	now = now_datetime()
+	current_date = getdate(now)
 
 	for row in doc.days:
 		if has_override(row):
@@ -136,18 +143,23 @@ def compute_booking(doc, settings=None):
 
 		start, end = day_window(row.work_date, cutoff)
 
-		if manual:
-			punches = [get_datetime(p) for p in (row.first_punch, row.last_punch) if p]
-		elif start > now or not doc.employee:
-			punches = []
-		else:
-			punches = frappe.get_all(
-				"Employee Checkin",
-				filters={"employee": doc.employee, "time": ["between", [start, end]]},
-				pluck="time",
+		# Punches already on the row are evidence of work and are never discarded:
+		# Employee Checkin results are added to them, not swapped in for them. The
+		# row's first/last punch normally came from those same checkins, so the
+		# set removes the copies and a second run counts nothing twice.
+		punches = {get_datetime(p) for p in (row.first_punch, row.last_punch) if p}
+		if not manual and doc.employee and start <= now:
+			punches.update(
+				get_datetime(p)
+				for p in frappe.get_all(
+					"Employee Checkin",
+					filters={"employee": doc.employee, "time": ["between", [start, end]]},
+					pluck="time",
+				)
 			)
 
-		if start > now and not punches:
+		if not punches:
+			# No punches, no pay.
 			row.update(
 				{
 					"first_punch": None,
@@ -156,7 +168,7 @@ def compute_booking(doc, settings=None):
 					"elapsed_hours": 0,
 					"paid_hours": 0,
 					"gate_pass": None,
-					"day_status": "Pending",
+					"day_status": "No Punch" if getdate(row.work_date) < current_date else "Pending",
 					"amount": 0,
 				}
 			)
@@ -164,7 +176,7 @@ def compute_booking(doc, settings=None):
 
 		gate_pass = get_gate_pass(doc.employee, row.work_date, settings)
 		result = compute_day(
-			[get_datetime(p) for p in punches],
+			sorted(punches),
 			flt(doc.day_rate),
 			flt(settings.full_day_hours),
 			flt(settings.break_hours),

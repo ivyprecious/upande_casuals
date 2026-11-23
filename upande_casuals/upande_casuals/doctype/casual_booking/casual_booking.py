@@ -35,7 +35,9 @@ class CasualBooking(Document):
 		self.sync_days()
 		settings = frappe.get_cached_doc("Casual Settings")
 		self.sync_returnable_items(settings)
-		if settings.punch_source == "Manual" and self.docstatus == 0:
+		if self.docstatus == 0:
+			# Same recompute as the Recalculate button and the hourly job, whatever
+			# the punch source, so a plain save never keeps a stale status or amount.
 			compute_booking(self, settings)
 		self.set_pay_due(settings)
 		self.set_totals()
@@ -189,8 +191,7 @@ def recalculate(name):
 	doc.check_permission("write")
 	if doc.docstatus != 0:
 		frappe.throw(_("Only draft bookings can be recalculated."))
-	compute_booking(doc)
-	doc.save()
+	doc.save()  # validate runs compute_booking
 	return doc.as_dict()
 
 

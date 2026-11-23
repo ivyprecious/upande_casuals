@@ -2,6 +2,7 @@
 # See license.txt
 
 from datetime import datetime, time, timedelta
+from unittest.mock import patch
 
 import frappe
 from frappe.model.workflow import apply_workflow
@@ -464,3 +465,240 @@ class TestCasualFlow(IntegrationTestCase):
 		self.assertEqual(self.employee_status(casual), "Active")
 		with self.assertRaises(frappe.ValidationError):
 			api.move_to_monthly_casual(casual.name, joining, self.department, designation)
+
+
+class TestNoPunchNoPay(IntegrationTestCase):
+	"""A booking day with no punches is never paid, whatever wrote it."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.department = frappe.db.get_value(
+			"Department",
+			{"company": frappe.db.get_single_value("Casual Settings", "company"), "is_group": 0},
+			"name",
+		)
+		if not cls.department:
+			raise cls.skipTest(cls, "Needs a Department")
+
+	make_casual = TestCasualFlow.make_casual
+	make_booking = TestCasualFlow.make_booking
+
+	def checkin(self, employee, when):
+		# Casual employees stay Inactive until worked; checkins need an Active one.
+		frappe.db.set_value("Employee", employee, "status", "Active")
+		TestCasualFlow.checkin(self, employee, when)
+
+	def setUp(self):
+		super().setUp()
+		self._source = frappe.db.get_single_value("Casual Settings", "punch_source")
+
+	def tearDown(self):
+		self.set_source(self._source)
+		super().tearDown()
+
+	def set_source(self, source):
+		frappe.db.set_single_value("Casual Settings", "punch_source", source)
+		frappe.clear_document_cache("Casual Settings", "Casual Settings")
+
+	def booking_with_punches(self, source, start="08:00", end="17:00"):
+		self.set_source(source)
+		casual = self.make_casual()
+		work_date = getdate(add_days(today(), -2))
+		booking = self.make_booking(casual, work_date)
+		day = datetime.combine(work_date, time())
+		booking.days[0].first_punch = day.replace(hour=int(start[:2]), minute=int(start[3:]))
+		booking.days[0].last_punch = day.replace(hour=int(end[:2]), minute=int(end[3:]))
+		booking.save()
+		return booking
+
+	def day_values(self, booking):
+		booking.reload()
+		r = booking.days[0]
+		return (r.day_status, r.paid_hours, r.amount, booking.total_amount)
+
+	def test_both_punches_computed(self):
+		booking = self.booking_with_punches("Manual")
+		self.assertEqual(self.day_values(booking), ("Full", 8, 800, 800))
+
+	def test_no_punches_zeroes_stale_values(self):
+		# The TSH incident: punches removed by a save that did not recompute,
+		# under Employee Checkin mode where validate does not run the pay engine.
+		booking = self.booking_with_punches("Manual", end="15:31")
+		self.assertEqual(self.day_values(booking)[0], "Partial")
+
+		self.set_source("Employee Checkin")
+		booking.days[0].first_punch = booking.days[0].last_punch = None
+		booking.save()
+		self.assertEqual(self.day_values(booking), ("No Punch", 0, 0, 0))
+		self.assertEqual(booking.days[0].elapsed_hours, 0)
+
+	def test_future_day_without_punches_is_pending(self):
+		self.set_source("Manual")
+		casual = self.make_casual()
+		booking = self.make_booking(casual, add_days(today(), 3))
+		self.assertEqual(self.day_values(booking), ("Pending", 0, 0, 0))
+
+	def test_checkin_recalculate_keeps_stored_punches(self):
+		# Switching to Employee Checkin must not wipe punches entered by hand
+		# when the device has nothing for that day.
+		booking = self.booking_with_punches("Manual")
+		self.set_source("Employee Checkin")
+		recalculate(booking.name)
+		booking.reload()
+		self.assertIsNotNone(booking.days[0].first_punch)
+		self.assertEqual(self.day_values(booking), ("Full", 8, 800, 800))
+
+	def test_recalculate_never_raises_unpunched_day(self):
+		self.set_source("Employee Checkin")
+		casual = self.make_casual()
+		booking = self.make_booking(casual, getdate(add_days(today(), -2)))
+		# Simulate stale computed values written behind the controller's back.
+		frappe.db.set_value(
+			"Casual Booking Day",
+			booking.days[0].name,
+			{"day_status": "Full", "paid_hours": 8, "amount": 800},
+		)
+		for _i in range(2):
+			recalculate(booking.name)
+			self.assertEqual(self.day_values(booking), ("No Punch", 0, 0, 0))
+
+	def test_recalculate_is_idempotent(self):
+		booking = self.booking_with_punches("Manual", end="15:40")
+		first = self.day_values(booking)
+		recalculate(booking.name)
+		recalculate(booking.name)
+		self.assertEqual(self.day_values(booking), first)
+		self.assertEqual((first[0], first[2]), ("Partial", 667))
+
+	def test_manual_amount_survives_recalculate(self):
+		self.set_source("Manual")
+		casual = self.make_casual()
+		booking = self.make_booking(casual, getdate(add_days(today(), -2)))
+		booking.days[0].manual_amount = 400
+		booking.days[0].override_reason = "Worked, device down"
+		booking.save()
+		recalculate(booking.name)
+		booking.reload()
+		self.assertEqual((booking.days[0].manual_amount, booking.total_amount), (400, 400))
+
+	def snapshot(self, booking):
+		booking.reload()
+		return [
+			(r.work_date, r.day_status, r.first_punch, r.last_punch, r.punch_count, r.paid_hours, r.amount)
+			for r in booking.days
+		]
+
+	def test_no_punches_today_is_pending(self):
+		self.set_source("Employee Checkin")
+		casual = self.make_casual()
+		booking = self.make_booking(casual, today())
+		recalculate(booking.name)
+		self.assertEqual(self.day_values(booking), ("Pending", 0, 0, 0))
+
+	def test_full_day_becomes_no_punch_when_punches_cleared(self):
+		booking = self.booking_with_punches("Manual")
+		self.assertEqual(self.day_values(booking)[0], "Full")
+		booking.days[0].first_punch = booking.days[0].last_punch = None
+		booking.save()
+		self.assertEqual(self.day_values(booking), ("No Punch", 0, 0, 0))
+
+	def test_checkin_full_day_becomes_no_punch_when_checkins_removed(self):
+		self.set_source("Employee Checkin")
+		casual = self.make_casual()
+		work_date = getdate(add_days(today(), -2))
+		booking = self.make_booking(casual, work_date)
+		day = datetime.combine(work_date, time())
+		self.checkin(casual.employee, day.replace(hour=8))
+		self.checkin(casual.employee, day.replace(hour=17))
+		recalculate(booking.name)
+		self.assertEqual(self.day_values(booking)[0], "Full")
+
+		frappe.db.delete("Employee Checkin", {"employee": casual.employee})
+		booking.reload()
+		booking.days[0].first_punch = booking.days[0].last_punch = None
+		booking.save()
+		self.assertEqual(self.day_values(booking), ("No Punch", 0, 0, 0))
+
+	def test_checkin_recalculate_twice_counts_no_punch_twice(self):
+		# Stored row punches are merged with Employee Checkin rows that are the same
+		# punches; they must be counted once, on every run.
+		self.set_source("Employee Checkin")
+		casual = self.make_casual()
+		work_date = getdate(add_days(today(), -2))
+		booking = self.make_booking(casual, work_date)
+		day = datetime.combine(work_date, time())
+		for hour in (8, 12, 17):
+			self.checkin(casual.employee, day.replace(hour=hour))
+		recalculate(booking.name)
+		first = self.snapshot(booking)
+		recalculate(booking.name)
+		booking.reload()
+		booking.save()
+		self.assertEqual(self.snapshot(booking), first)
+		self.assertEqual(first[0][4], 3)
+		self.assertEqual(first[0][1], "Full")
+
+	def test_save_matches_recalculate(self):
+		self.set_source("Employee Checkin")
+		casual = self.make_casual()
+		work_date = getdate(add_days(today(), -2))
+		booking = self.make_booking(casual, work_date, add_days(work_date, 1))
+		day = datetime.combine(work_date, time())
+		self.checkin(casual.employee, day.replace(hour=8))
+		self.checkin(casual.employee, day.replace(hour=15, minute=40))
+		# Stale values on the second (unpunched) day, written behind the controller.
+		frappe.db.set_value(
+			"Casual Booking Day", booking.days[1].name, {"day_status": "Full", "paid_hours": 8, "amount": 800}
+		)
+
+		booking.reload()
+		booking.save()
+		saved = self.snapshot(booking)
+		recalculate(booking.name)
+		self.assertEqual(self.snapshot(booking), saved)
+		self.assertEqual([s[1] for s in saved], ["Partial", "No Punch"])
+
+	def test_manual_amount_survives_save_and_recalculate(self):
+		self.set_source("Employee Checkin")
+		casual = self.make_casual()
+		booking = self.make_booking(casual, getdate(add_days(today(), -2)))
+		booking.days[0].manual_amount = 400
+		booking.days[0].override_reason = "Worked, device down"
+		booking.save()
+		recalculate(booking.name)
+		recalculate(booking.name)
+		booking.reload()
+		self.assertEqual((booking.days[0].manual_amount, booking.total_amount), (400, 400))
+
+	def test_hourly_recompute_is_bounded(self):
+		from upande_casuals import tasks
+
+		self.set_source("Employee Checkin")
+		casual = self.make_casual()
+		old = getdate(add_days(today(), -(tasks.RECOMPUTE_WINDOW_DAYS + 5)))
+		recent = getdate(add_days(today(), -2))
+		old_booking = self.make_booking(casual, old)
+		new_booking = self.make_booking(casual, recent)
+		for b in (old_booking, new_booking):
+			frappe.db.set_value("Casual Booking Day", b.days[0].name, {"day_status": "Full", "amount": 800})
+
+		# The job commits per booking; keep the test inside its transaction.
+		with patch.object(frappe.db, "commit"):
+			tasks.recompute_open_bookings()
+		self.assertEqual(self.day_values(new_booking)[0], "No Punch")
+		self.assertEqual(self.day_values(old_booking)[0], "Full")
+
+	def test_patch_zeroes_past_unpunched_days(self):
+		from upande_casuals.patches import zero_unpunched_past_days
+
+		self.set_source("Employee Checkin")
+		casual = self.make_casual()
+		booking = self.make_booking(casual, getdate(add_days(today(), -2)))
+		frappe.db.set_value(
+			"Casual Booking Day", booking.days[0].name, {"day_status": "Pending", "paid_hours": 3, "amount": 300}
+		)
+		frappe.db.set_value("Casual Booking", booking.name, "total_amount", 300)
+		for _i in range(2):
+			zero_unpunched_past_days.execute()
+			self.assertEqual(self.day_values(booking), ("No Punch", 0, 0, 0))

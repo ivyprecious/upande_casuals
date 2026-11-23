@@ -19,6 +19,9 @@ DAY_FIELDS = (
 	"day_status",
 	"amount",
 )
+# The hourly recompute looks back this far; older drafts are fixed by opening and
+# saving them (or by a patch), not by scanning every booking ever made each hour.
+RECOMPUTE_WINDOW_DAYS = 45
 PROTECTED_STATUSES = ("Left", "Suspended")
 MONTHLY_ELIGIBLE_DAYS = 5
 
@@ -42,7 +45,11 @@ def recompute_open_bookings():
 	settings = get_settings()
 	names = frappe.get_all(
 		"Casual Booking",
-		filters={"docstatus": 0, "from_date": ["<=", today()], "to_date": [">=", add_days(today(), -3)]},
+		filters={
+			"docstatus": 0,
+			"from_date": ["<=", today()],
+			"to_date": [">=", add_days(today(), -RECOMPUTE_WINDOW_DAYS)],
+		},
 		pluck="name",
 	)
 	for name in names:
