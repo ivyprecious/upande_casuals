@@ -22,6 +22,8 @@ def get_columns():
 		# Plain Data, so the ID is not shown joined to the name as a Link would be.
 		{"fieldname": "employee_no", "label": _("Employee No"), "fieldtype": "Data", "width": 110},
 		{"fieldname": "employee_name", "label": _("Employee Name"), "fieldtype": "Data", "width": 180},
+		# Data, not a number, so leading zeros and the 254 prefix survive Excel/PDF export.
+		{"fieldname": "mpesa_number", "label": _("M-Pesa Number"), "fieldtype": "Data", "width": 130},
 		{
 			"fieldname": "department",
 			"label": _("Primary Department"),
@@ -44,6 +46,16 @@ def get_data(filters):
 		select
 			max(ifnull(c.employee, b.casual)) as employee_no,
 			max(ifnull(c.full_name, b.casual_name)) as employee_name,
+			-- The casual's own number; a booking copies it only at creation, so its copy
+			-- is a fallback (latest non-empty one) for casuals with no number set.
+			coalesce(
+				nullif(max(c.mpesa_number), ''),
+				substring_index(
+					group_concat(nullif(b.mpesa_number, '') order by b.creation desc separator '\n'),
+					'\n',
+					1
+				)
+			) as mpesa_number,
 			max(c.department) as department,
 			count(*) as days_requested,
 			sum({EFFECTIVE_AMOUNT} > 0) as days_worked,
